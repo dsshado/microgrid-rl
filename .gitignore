@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Training outputs (large files — don't track in git)
+RL_Training/Trained_Models/*.pt
+RL_Training/Trained_Models/*.zip
+RL_Training/Tensorboard_logger/
+RL_Testing/Trained_Models/
+RL_Testing/Tensorboard_logger/
+
+# OpenDSS output
+*.dss.json
+DSSProgress.txt
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,24 @@
+# Core RL
+gymnasium==0.29.1
+stable-baselines3==2.3.2
+
+# Deep Learning
+torch==2.2.2
+torchvision==0.17.2
+
+# Graph Neural Networks
+torch-geometric==2.5.3
+
+# Power Systems Simulation
+opendssdirect.py==0.9.4
+
+# Graph & Math
+networkx==3.2.1
+numpy==1.26.4
+scipy==1.12.0
+
+# Utilities
+matplotlib==3.8.3
+pandas==2.2.1
+tensorboard==2.16.2
+tqdm==4.66.2
