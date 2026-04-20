@@ -114,7 +114,7 @@ class MAPPO:
             with torch.no_grad():
                 F_nodes, F_graph, F_context = self.policy.encode(obs_t)
                 last_val = self.policy.critic(torch.cat([F_graph, F_context], dim=-1))
-        self.buffer.compute_advantages(last_val, gamma=self.cfg.gamma)
+        self.buffer.compute_advantages(last_val, gamma=self.cfg.gamma, gae_lambda=self.cfg.gae_lambda)
 
     # ── policy update ────────────────────────────────────────────────────────
 

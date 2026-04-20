@@ -62,25 +62,28 @@ class MAPPORolloutBuffer:
 
     # ── advantage computation (Wang et al. 2025, Eq. 27) ────────────────────
 
-    def compute_advantages(self, last_value, gamma=0.99):
-        """Per-agent truncated advantage: A_i_t = G_t - V(o_i_t).
+    def compute_advantages(self, last_value, gamma=0.99, gae_lambda=0.95):
+        """Per-agent GAE (Schulman et al. 2016).
 
-        Bootstrap is zeroed at episode boundaries so that done=True steps
-        do not propagate value estimates from the next episode's start state.
+        delta_t   = r_t + gamma * V(s_{t+1}) * (1 - done_t) - V(s_t)
+        A_hat_t   = delta_t + (gamma * lambda) * (1 - done_t) * A_hat_{t+1}
+
+        lambda=1.0 recovers Wang et al. (2025) Eq. 27 (truncated return).
+        lambda=0.95 is the standard PPO setting (stable-baselines3 default).
         """
-        last_val = float(self._np(last_value).squeeze())
+        last_val    = float(self._np(last_value).squeeze())
+        gae         = 0.0
 
-        # If the rollout ended mid-episode, bootstrap from last_value;
-        # if it ended at a terminal step, last_val is already 0 (set by caller).
-        next_val = last_val
         for t in reversed(range(self.n_steps)):
-            # At a terminal step the episode ended — no future value to bootstrap.
-            if self.dones[t]:
-                next_val = 0.0
-            G_t = self.rewards[t] + gamma * next_val
-            self.returns[t]    = G_t                           # broadcast to all agents
-            self.advantages[t] = G_t - self.values[t]         # per-agent advantage
-            next_val = self.values[t]
+            not_done    = 1.0 - self.dones[t]
+            next_val    = last_val if t == self.n_steps - 1 else self.values[t + 1]
+            next_val   *= not_done                             # zero bootstrap at episode end
+
+            delta       = self.rewards[t] + gamma * next_val - self.values[t]
+            gae         = delta + gamma * gae_lambda * not_done * gae
+
+            self.advantages[t] = gae                          # broadcast to all agents
+            self.returns[t]    = gae + self.values[t]         # V + A = G_t
 
     # ── mini-batch generator ─────────────────────────────────────────────────
 

@@ -20,6 +20,8 @@ def get_training_config(args=None):
     parser.add_argument('--ent_coef',      type=float, default=0.1)
     parser.add_argument('--val_coef',      type=float, default=0.5)
     parser.add_argument('--gamma',         type=float, default=0.99)
+    parser.add_argument('--gae_lambda',    type=float, default=0.95,
+                        help='GAE lambda. 0.95=standard PPO, 1.0=Wang et al. truncated return')
 
     # Saving & Logging
     parser.add_argument('--save_freq',  type=int, default=100000)
