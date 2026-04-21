@@ -78,14 +78,15 @@ def get_state(DSSCktobj, G, edgesout):
     for _ in dispatch_loads:
         SwitchMasks.append(0)
 
+    _clip = lambda x: np.clip(np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0), -1e6, 1e6)
     return {
-        "EnergySupp":           np.array([En_Supply_perc],       dtype=np.float32),
-        "NodeFeat(BusVoltage)": np.array(Vmagpu,                 dtype=np.float32),
-        "EdgeFeat(Branchflow)": np.array(I_flow,                 dtype=np.float32),
-        "Adjacency":            np.array(Adj_mat.todense(),      dtype=np.float32),
-        "VoltageViolation":     np.array([V_viol],               dtype=np.float32),
-        "ConvergenceViolation": np.array([Conv_const],           dtype=np.float32),
-        "ActionMasking":        np.array(SwitchMasks,            dtype=np.float32),
+        "EnergySupp":           np.array([_clip(En_Supply_perc)], dtype=np.float32),
+        "NodeFeat(BusVoltage)": np.array(_clip(Vmagpu),           dtype=np.float32),
+        "EdgeFeat(Branchflow)": np.array(_clip(I_flow),           dtype=np.float32),
+        "Adjacency":            np.array(Adj_mat.todense(),       dtype=np.float32),
+        "VoltageViolation":     np.array([_clip(V_viol)],         dtype=np.float32),
+        "ConvergenceViolation": np.array([Conv_const],            dtype=np.float32),
+        "ActionMasking":        np.array(SwitchMasks,             dtype=np.float32),
     }
 
 
