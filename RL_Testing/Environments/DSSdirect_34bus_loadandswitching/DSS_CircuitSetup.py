@@ -87,8 +87,7 @@ def CktModSetup(DSSfile, sectional_swt, tie_swt, generators):
             f"Phases={str(gen['numphase'])} Kv={str(gen['kV'])} Kw={str(gen['size'])} Pf=0.8 Model=1"
         )
 
-    DSSCktobj.dss.Text.Command("redirect Loadshapes.dss")
-    DSSCktobj.dss.Text.Command("BatchEdit Load..* Daily=loadshape_multload")
+    # 34-bus network does not use load shapes
     return DSSCktobj
 
 
