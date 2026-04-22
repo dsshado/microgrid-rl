@@ -1,8 +1,10 @@
-"""Train PPO+GCAPS or MAPPO+GCAPS on the IEEE 123-bus network.
+"""Train PPO+GCAPS or MAPPO+GCAPS on IEEE test networks.
 
 Usage:
-    python train.py --algo MAPPO
-    python train.py --algo PPO
+    python train.py --algo MAPPO --bus_size 34
+    python train.py --algo MAPPO --bus_size 123
+    python train.py --algo PPO   --bus_size 34
+    python train.py --algo PPO   --bus_size 123
 """
 
 import sys
@@ -17,11 +19,6 @@ _ROOT = os.path.dirname(_HERE)                               # MAPPO_Outage_Mana
 sys.path.insert(0, _HERE)
 sys.path.insert(0, _ROOT)
 
-# ── imports ───────────────────────────────────────────────────────────────────
-from Environments.DSSdirect_123bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
-from Environments.DSSdirect_123bus_loadandswitching.DSS_Initialize import (
-    node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
-)
 from Configs.training_config import get_training_config
 
 
@@ -32,9 +29,24 @@ def lr_schedule(initial_value: float) -> Callable[[float], float]:
     return func
 
 
+# ── environment + network info loader ────────────────────────────────────────
+def load_env_and_info(bus_size: int):
+    if bus_size == 34:
+        from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
+        from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
+            node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+        )
+    else:
+        from Environments.DSSdirect_123bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
+        from Environments.DSSdirect_123bus_loadandswitching.DSS_Initialize import (
+            node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+        )
+    env = DSS_OutCtrl_Env()
+    return env, node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+
+
 # ── agent-to-bus mapping for MAPPO ───────────────────────────────────────────
-def build_agent_bus_mapping():
-    """Map each agent (switch/load) to its bus index in node_list."""
+def build_agent_bus_mapping(node_list, AllSwitches, dispatch_loads, Load_Buses):
     mapping = []
     for sw in AllSwitches:
         bus = sw['from bus']
@@ -57,13 +69,22 @@ if __name__ == '__main__':
     device = torch.device(device_str)
 
     print(f"Algorithm  : {cfg.algo}")
+    print(f"Bus size   : {cfg.bus_size}-bus")
     print(f"Device     : {device}")
     print(f"Total steps: {cfg.total_steps}")
 
-    save_path = cfg.model_save + f"{cfg.algo}_GCAPS_123bus"
+    save_path = cfg.model_save + f"{cfg.algo}_GCAPS_{cfg.bus_size}bus"
 
-    # ── create environment ────────────────────────────────────────────────────
-    env = DSS_OutCtrl_Env()
+    # ── create environment and load network info ──────────────────────────────
+    env, node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions = \
+        load_env_and_info(cfg.bus_size)
+
+    # Auto-detect context_input_dim from env: EnergySupp(1) + VoltageViolation(1) + EdgeFeat(E)
+    edge_dim          = env.observation_space['EdgeFeat(Branchflow)'].shape[0]
+    context_input_dim = 1 + 1 + edge_dim
+
+    print(f"Agents     : {n_actions}")
+    print(f"Edge dim   : {edge_dim}  →  context_input_dim: {context_input_dim}")
 
     # ══════════════════════════════════════════════════════════════════════════
     if cfg.algo == 'PPO':
@@ -71,11 +92,21 @@ if __name__ == '__main__':
         from stable_baselines3.common.callbacks import CheckpointCallback
         from stable_baselines3.common.vec_env import SubprocVecEnv
         from stable_baselines3.common.utils import set_random_seed
-        from Policies.bus_123.Feature_Extractor import get_extractor
-        from Policies.bus_123.CustomPolicies import ActorCriticGCAPSPolicy
+
+        if cfg.bus_size == 34:
+            from Policies.bus_123.Feature_Extractor import get_extractor
+            from Policies.bus_123.CustomPolicies import ActorCriticGCAPSPolicy
+        else:
+            from Policies.bus_123.Feature_Extractor import get_extractor
+            from Policies.bus_123.CustomPolicies import ActorCriticGCAPSPolicy
 
         def make_env(rank, seed=0):
             def _init():
+                _, _, _, _, _, _ = load_env_and_info(cfg.bus_size)
+                if cfg.bus_size == 34:
+                    from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
+                else:
+                    from Environments.DSSdirect_123bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
                 e = DSS_OutCtrl_Env()
                 e.reset(seed=seed + rank)
                 return e
@@ -96,12 +127,12 @@ if __name__ == '__main__':
         checkpoint_cb = CheckpointCallback(
             save_freq=cfg.save_freq,
             save_path=cfg.model_save,
-            name_prefix=f"PPO_GCAPS_123bus"
+            name_prefix=f"PPO_GCAPS_{cfg.bus_size}bus"
         )
         model = PPO(
             policy=ActorCriticGCAPSPolicy,
             env=vec_env,
-            tensorboard_log=cfg.logger + "PPO_GCAPS_123bus",
+            tensorboard_log=cfg.logger + f"PPO_GCAPS_{cfg.bus_size}bus",
             policy_kwargs=policy_kwargs,
             verbose=1,
             n_steps=cfg.n_steps,
@@ -121,12 +152,14 @@ if __name__ == '__main__':
         from RL_Methods.MAPPO.policy import MAPPOPolicy
         from RL_Methods.MAPPO.mappo  import MAPPO
 
-        agent_bus_indices = build_agent_bus_mapping()
+        agent_bus_indices = build_agent_bus_mapping(
+            node_list, AllSwitches, dispatch_loads, Load_Buses
+        )
         policy = MAPPOPolicy(
             n_agents=n_actions,
             features_dim=cfg.features_dim,
             node_dim=3,
-            context_input_dim=140,
+            context_input_dim=context_input_dim,
             agent_bus_indices=agent_bus_indices,
             device=device_str,
         )

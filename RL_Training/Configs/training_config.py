@@ -6,7 +6,9 @@ def get_training_config(args=None):
     parser = argparse.ArgumentParser(description="MAPPO/PPO with GCAPS for 123-bus outage management")
 
     # Algorithm
-    parser.add_argument('--algo', type=str, default='MAPPO', choices=['PPO', 'MAPPO'])
+    parser.add_argument('--algo',     type=str, default='MAPPO', choices=['PPO', 'MAPPO'])
+    parser.add_argument('--bus_size', type=int, default=123,     choices=[34, 123],
+                        help='IEEE test network size (34 or 123 bus)')
 
     # Network
     parser.add_argument('--features_dim', type=int, default=128)
