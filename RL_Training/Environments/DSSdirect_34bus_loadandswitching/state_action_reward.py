@@ -185,6 +185,6 @@ def Volt_Constr(Vmagpu, active_conn):
 
 
 def get_reward(observ_dict):
-    if observ_dict['ConvergenceViolation'] > 0 or math.isinf(observ_dict['VoltageViolation']):
+    if float(observ_dict['ConvergenceViolation']) > 0 or math.isinf(float(observ_dict['VoltageViolation'])):
         return np.array([0.0])
     return observ_dict['EnergySupp'] - observ_dict['VoltageViolation']
