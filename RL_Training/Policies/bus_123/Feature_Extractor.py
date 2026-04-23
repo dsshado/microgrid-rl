@@ -26,13 +26,18 @@ class GCAPSExtractor(BaseFeaturesExtractor):
         self.W_L_1_G3    = nn.Linear(n_dim * (n_K + 1) * n_p, n_dim)
         self.W_F         = nn.Linear(n_dim * n_p, features_dim)
 
+        # Auto-detect dims from observation space so this works for any bus size
+        n_nodes      = observation_space['NodeFeat(BusVoltage)'].shape[0]
+        edge_dim     = observation_space['EdgeFeat(Branchflow)'].shape[0]
+        context_dim  = 1 + 1 + edge_dim   # EnergySupp + VoltageViolation + EdgeFeat
+
         self.full_context_nn = nn.Sequential(
-            nn.Linear(140, 2 * features_dim),
+            nn.Linear(context_dim, 2 * features_dim),
             nn.LeakyReLU(),
             nn.Linear(2 * features_dim, features_dim)
         )
         self.switch_encoder = nn.Sequential(
-            nn.Linear(130, 2 * features_dim),
+            nn.Linear(n_nodes, 2 * features_dim),
             nn.LeakyReLU(),
             nn.Linear(2 * features_dim, features_dim)
         )
