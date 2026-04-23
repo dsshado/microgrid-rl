@@ -74,6 +74,7 @@ if __name__ == '__main__':
     print(f"Total steps: {cfg.total_steps}")
 
     save_path = cfg.model_save + f"{cfg.algo}_GCAPS_{cfg.bus_size}bus"
+    os.makedirs(cfg.model_save, exist_ok=True)
 
     # ── create environment and load network info ──────────────────────────────
     env, node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions = \

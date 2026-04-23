@@ -1,6 +1,7 @@
 """MAPPO trainer — Wang et al. (2025) Eqs. 23-33."""
 
 import math
+import os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -180,6 +181,7 @@ class MAPPO:
         next_save    = save_freq
 
         print(f"MAPPO training: {total_timesteps} steps / {n_updates} updates")
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         for update in range(1, n_updates + 1):
             progress = 1.0 - steps_done / total_timesteps
