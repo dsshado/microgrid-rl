@@ -1,4 +1,4 @@
-"""MAPPO trainer — Wang et al. (2025) Eqs. 23-33."""
+"""MAPPO trainer — Wang et al. (2025) Eqs. 23-33, v2 spec."""
 
 import math
 import os
@@ -24,16 +24,16 @@ class MAPPO:
     Yu   et al. (2022) https://arxiv.org/abs/2103.01955             (parameter sharing)
     """
 
-    # default switch statuses after env reset (sectionalizing: closed=1, tie: open=0, loads: served=1)
-    _N_SECT = 13
-    _N_TIE  = 9
-    _N_LOAD = 19
-
-    def __init__(self, env, policy, cfg):
+    def __init__(self, env, policy, cfg, n_sect, n_tie, n_load):
         self.env    = env
         self.policy = policy
         self.cfg    = cfg
         self.device = policy._device
+
+        # Per-bus initial switch/load statuses (sectionalizing: closed, tie: open, loads: served)
+        self._n_sect = n_sect
+        self._n_tie  = n_tie
+        self._n_load = n_load
 
         n_agents = policy.n_agents
         self.buffer = MAPPORolloutBuffer(
@@ -50,15 +50,15 @@ class MAPPO:
             eps=1e-5
         )
 
-        self.tb_writer = SummaryWriter(log_dir=cfg.logger + f"MAPPO_GCAPS_123bus")
+        self.tb_writer = SummaryWriter(log_dir=cfg.logger + f"MAPPO_GCAPS_{cfg.bus_size}bus")
         self._global_step = 0
 
     # ── default initial actions after reset ─────────────────────────────────
 
     def _default_actions(self):
         act = np.zeros(self.policy.n_agents, dtype=np.float32)
-        act[:self._N_SECT]                    = 1.0   # sectionalizing closed
-        act[self._N_SECT + self._N_TIE:]      = 1.0   # loads served
+        act[:self._n_sect]                      = 1.0   # sectionalizing closed
+        act[self._n_sect + self._n_tie:]        = 1.0   # loads served
         return act
 
     # ── observation → tensor (unbatched) ────────────────────────────────────
@@ -85,6 +85,15 @@ class MAPPO:
             next_obs, reward, terminated, truncated, _ = self.env.step(joint_action)
             done = terminated or truncated
 
+            # One-step TD: V(S') = 0 if episode ended, else compute from next obs
+            if done:
+                next_val = torch.zeros(1, 1, device=self.device)
+            else:
+                obs_next_t = self._obs_to_tensor(next_obs)
+                with torch.no_grad():
+                    F_n, F_g, F_c = self.policy.encode(obs_next_t)
+                    next_val = self.policy.critic(torch.cat([F_g, F_c], dim=-1))
+
             mask = obs_t['ActionMasking'].squeeze(0)
 
             self.buffer.add(
@@ -92,6 +101,7 @@ class MAPPO:
                 actions.squeeze(0),
                 reward,
                 values.squeeze(0),
+                next_val.squeeze(0),
                 log_probs.squeeze(0),
                 mask,
                 global_state.squeeze(0),
@@ -107,24 +117,16 @@ class MAPPO:
             else:
                 obs = next_obs
 
-        # Bootstrap only if the rollout ended mid-episode; zero if last step was terminal.
-        if done:
-            last_val = torch.zeros(1, 1, device=self.device)
-        else:
-            obs_t = self._obs_to_tensor(obs)
-            with torch.no_grad():
-                F_nodes, F_graph, F_context = self.policy.encode(obs_t)
-                last_val = self.policy.critic(torch.cat([F_graph, F_context], dim=-1))
-        self.buffer.compute_advantages(last_val, gamma=self.cfg.gamma, gae_lambda=self.cfg.gae_lambda)
+        self.buffer.compute_advantages(gamma=self.cfg.gamma)
 
     # ── policy update ────────────────────────────────────────────────────────
 
     def update(self):
-        clip_eps  = 0.2
-        total_actor_loss  = 0.0
-        total_value_loss  = 0.0
-        total_entropy     = 0.0
-        n_batches = 0
+        clip_eps         = 0.2
+        total_actor_loss = 0.0
+        total_value_loss = 0.0
+        total_entropy    = 0.0
+        n_batches        = 0
 
         for _ in range(self.cfg.n_epochs):
             for agent_obs, actions, advantages, returns, old_log_probs, masks, global_states \
@@ -145,7 +147,6 @@ class MAPPO:
                 actor_loss = -(torch.min(surr1, surr2) * active).sum() / denom
 
                 # ── critic loss (Wang et al. 2025, Eq. 32) ──────────────────
-                # shared value target = mean return across agents
                 value_targets = returns.mean(dim=-1, keepdim=True)     # (B, 1)
                 value_loss    = F.mse_loss(values, value_targets)
 

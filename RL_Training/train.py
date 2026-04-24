@@ -34,15 +34,20 @@ def load_env_and_info(bus_size: int):
     if bus_size == 34:
         from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
         from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
-            node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+            node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions,
+            sectional_swt, tie_swt
         )
     else:
         from Environments.DSSdirect_123bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
         from Environments.DSSdirect_123bus_loadandswitching.DSS_Initialize import (
-            node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+            node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions,
+            sectional_swt, tie_swt
         )
     env = DSS_OutCtrl_Env()
-    return env, node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+    n_sect = len(sectional_swt)
+    n_tie  = len(tie_swt)
+    n_load = len(dispatch_loads)
+    return env, node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions, n_sect, n_tie, n_load
 
 
 # ── agent-to-bus mapping for MAPPO ───────────────────────────────────────────
@@ -77,7 +82,7 @@ if __name__ == '__main__':
     os.makedirs(cfg.model_save, exist_ok=True)
 
     # ── create environment and load network info ──────────────────────────────
-    env, node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions = \
+    env, node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions, n_sect, n_tie, n_load = \
         load_env_and_info(cfg.bus_size)
 
     # Auto-detect context_input_dim from env: EnergySupp(1) + VoltageViolation(1) + EdgeFeat(E)
@@ -103,7 +108,7 @@ if __name__ == '__main__':
 
         def make_env(rank, seed=0):
             def _init():
-                _, _, _, _, _, _ = load_env_and_info(cfg.bus_size)
+                _, _, _, _, _, _, _, _, _ = load_env_and_info(cfg.bus_size)
                 if cfg.bus_size == 34:
                     from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
                 else:
@@ -165,7 +170,8 @@ if __name__ == '__main__':
             device=device_str,
         )
 
-        trainer = MAPPO(env=env, policy=policy, cfg=cfg)
+        trainer = MAPPO(env=env, policy=policy, cfg=cfg,
+                        n_sect=n_sect, n_tie=n_tie, n_load=n_load)
         trainer.learn(
             total_timesteps=cfg.total_steps,
             save_path=save_path,
