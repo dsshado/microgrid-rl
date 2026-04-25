@@ -60,8 +60,10 @@ class DSS_OutCtrl_Env(gym.Env):
 
         Gsub      = nx.ego_graph(G_base, nd, radius=rad, undirected=False)
         sub_edges = list(Gsub.edges())
+        if len(sub_edges) == 0:
+            return self.reset()
         out_perc  = uniform(0, max_percfail)
-        N_out     = math.ceil(len(sub_edges) * out_perc)
+        N_out     = max(1, math.ceil(len(sub_edges) * out_perc))
         out_edges = sample(sub_edges, k=N_out)
 
         for o_e in out_edges:
