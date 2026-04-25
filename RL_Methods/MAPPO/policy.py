@@ -93,9 +93,8 @@ class MAPPOPolicy(nn.Module):
             if isinstance(v, torch.Tensor):
                 out[k] = v.float().to(self._device)
             else:
-                out[k] = torch.tensor(v, dtype=torch.float32).to(self._device)
-            if out[k].dim() == 1:
-                out[k] = out[k].unsqueeze(0)   # add batch dim
+                # Raw numpy from env — always add batch dim regardless of ndim
+                out[k] = torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(self._device)
         return out
 
     def encode(self, obs_dict):
