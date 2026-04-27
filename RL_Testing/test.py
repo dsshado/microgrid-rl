@@ -1,18 +1,17 @@
 """Evaluate and compare PPO+GCAPS vs MAPPO+GCAPS on IEEE test networks.
 
 Usage:
-    # Full evaluation + paper figures
+    # Full evaluation + paper figures (paper figs ON by default, 500 eps, saves to Drive)
     python test.py --bus_size 34
-                   --ppo_model ../RL_Training/Trained_Models/PPO_GCAPS_34bus_final
-                   --mappo_model ../RL_Training/Trained_Models/MAPPO_GCAPS_34bus_final.pt
-                   --fig_format pdf --paper_figs
+                   --ppo_model /content/drive/MyDrive/microgrid_models/PPO_GCAPS_34bus_final
+                   --mappo_model /content/drive/MyDrive/microgrid_models/MAPPO_GCAPS_34bus_final.pt
 
     # Re-plot from saved results (no re-evaluation)
-    python test.py --bus_size 34 --load_results --paper_figs --fig_format eps
+    python test.py --bus_size 34 --load_results
                    --ppo_model <path>  --mappo_model <path>
 
     # Training convergence (needs log dirs)
-    python test.py ... --paper_figs
+    python test.py --bus_size 34
                    --ppo_log /content/drive/.../ppo_logs
                    --mappo_log /content/drive/.../MAPPO_GCAPS_34bus
 """
@@ -667,15 +666,15 @@ if __name__ == '__main__':
                         default='../RL_Training/Trained_Models/PPO_GCAPS_123bus_final')
     parser.add_argument('--mappo_model',  type=str,
                         default='../RL_Training/Trained_Models/MAPPO_GCAPS_123bus_final.pt')
-    parser.add_argument('--n_episodes',   type=int,  default=100)
+    parser.add_argument('--n_episodes',   type=int,  default=500)
     parser.add_argument('--no_cuda',      action='store_true')
-    parser.add_argument('--plot_dir',     type=str,  default='Results/plots')
+    parser.add_argument('--plot_dir',     type=str,  default='/content/drive/MyDrive/microgrid_models/plots')
     parser.add_argument('--fig_format',   type=str,  default='pdf',
                         choices=['pdf', 'eps', 'png', 'svg'])
     parser.add_argument('--load_results', action='store_true',
                         help='Skip evaluation and re-plot from saved .npz files')
-    parser.add_argument('--paper_figs',   action='store_true',
-                        help='Generate paper-style figures (heatmap, voltage, energy bar, convergence)')
+    parser.add_argument('--no_paper_figs', action='store_true',
+                        help='Disable paper-style figures (paper figs are on by default)')
     parser.add_argument('--ppo_log',      type=str,  default=None,
                         help='PPO training log dir (for convergence plot)')
     parser.add_argument('--mappo_log',    type=str,  default=None,
@@ -721,7 +720,7 @@ if __name__ == '__main__':
         save_invalid_scenarios(invalid_scenarios, data_dir, tag='random')
 
     print_comparison(results, args.bus_size, label='Random Episodes')
-    if not args.paper_figs:
+    if args.no_paper_figs:
         plot_comparison(results, args.bus_size, args.plot_dir, fmt=args.fig_format)
     print_invalid_scenarios(invalid_scenarios)
 
@@ -750,7 +749,7 @@ if __name__ == '__main__':
             save_results(inv_results, data_dir, tag='invalid_replay')
 
         print_comparison(inv_results, args.bus_size, label='PPO-Failed Scenarios Replay')
-        if not args.paper_figs:
+        if args.no_paper_figs:
             plot_comparison(inv_results, args.bus_size,
                             os.path.join(args.plot_dir, 'invalid_replay'), fmt=args.fig_format)
 
@@ -781,14 +780,14 @@ if __name__ == '__main__':
 
         print(f"\nCritical outage scenario: lines 832-858, 852-854, 834-860")
         print_comparison(crit_results, args.bus_size, label='Critical Outage')
-        if not args.paper_figs:
+        if args.no_paper_figs:
             plot_comparison(crit_results, args.bus_size,
                             os.path.join(args.plot_dir, 'critical'), fmt=args.fig_format)
     else:
         print("\n[Critical] Critical case only supported for 34-bus. Skipping.")
 
     # ── paper-style figures ───────────────────────────────────────────────────
-    if args.paper_figs and args.bus_size == 34:
+    if not args.no_paper_figs and args.bus_size == 34:
         print("\n[Paper Figures] Generating paper-style figures ...")
         fig_dir = os.path.join(args.plot_dir, 'paper_figures')
         try:
