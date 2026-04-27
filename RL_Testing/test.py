@@ -726,6 +726,62 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suff
     print(f"  Saved: {fname}")
 
 
+# ── valid-episode mean bar chart ─────────────────────────────────────────────
+def plot_valid_mean_bar(results, invalid_scenarios, save_dir, fmt):
+    """Bar chart of mean metrics excluding PPO-crashed episodes."""
+    # Build set of invalid episode indices (0-based)
+    invalid_idx = set()
+    for sc in invalid_scenarios:
+        invalid_idx.add(sc['episode'] - 1)   # episode is 1-based
+
+    n = len(results['PPO']['reward'])
+    valid_mask = np.array([i not in invalid_idx for i in range(n)])
+    n_valid    = valid_mask.sum()
+    n_invalid  = n - n_valid
+
+    metrics = [
+        ('Mean Reward',        'reward',      'Reward'),
+        ('Mean Energy Supp',   'energy_supp', 'Energy Supplied (p.u.)'),
+        ('Mean Volt Violation', 'volt_viol',  'Voltage Violation'),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 5))
+
+    for ax, (title, key, ylabel) in zip(axes, metrics):
+        ppo_vals   = results['PPO'][key][valid_mask]
+        mappo_vals = results['MAPPO'][key][valid_mask]
+
+        ppo_mean,   ppo_std   = ppo_vals.mean(),   ppo_vals.std()
+        mappo_mean, mappo_std = mappo_vals.mean(), mappo_vals.std()
+
+        bars = ax.bar(['PPO+GCAPS', 'MAPPO+GCAPS'],
+                      [ppo_mean, mappo_mean],
+                      yerr=[ppo_std, mappo_std],
+                      color=['steelblue', 'tomato'], alpha=0.85,
+                      capsize=6, error_kw={'linewidth': 1.5})
+
+        for bar, mean in zip(bars, [ppo_mean, mappo_mean]):
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + ppo_std * 0.05,
+                    f'{mean:.3f}', ha='center', va='bottom', fontsize=9)
+
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(True, axis='y', alpha=0.3)
+
+    fig.suptitle(
+        f'Mean Performance on Valid Episodes '
+        f'({n_valid}/{n} episodes, {n_invalid} PPO-failed excluded)',
+        fontsize=11
+    )
+    fig.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    fname = os.path.join(save_dir, f'fig_valid_mean_bar.{fmt}')
+    fig.savefig(fname, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {fname}")
+
+
 # ── paper-style Figure 3: energy bar chart ───────────────────────────────────
 def plot_energy_bar(results_by_scenario, save_dir, fmt):
     scenarios = list(results_by_scenario.keys())
@@ -1010,6 +1066,9 @@ if __name__ == '__main__':
                     inv_outedges, inv_meta, fig_dir, args.fig_format,
                     suffix='invalid', title=inv_title
                 )
+
+            # Valid-episode mean bar chart
+            plot_valid_mean_bar(results, invalid_scenarios, fig_dir, args.fig_format)
 
             # Fig 3: training convergence (optional — needs log dirs)
             if args.ppo_log or args.mappo_log:
