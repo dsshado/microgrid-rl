@@ -466,7 +466,7 @@ def plot_comparison(results, bus_size, save_dir, fmt='pdf'):
 
 
 # ── paper-style Figure 1: decision variables heatmap ─────────────────────────
-def plot_decision_heatmap(actions_dict, meta, save_dir, fmt):
+def plot_decision_heatmap(actions_dict, meta, save_dir, fmt, suffix=''):
     n_sect = meta['n_sect']
     n_tie  = meta['n_tie']
     n_sw   = n_sect + n_tie
@@ -514,14 +514,15 @@ def plot_decision_heatmap(actions_dict, meta, save_dir, fmt):
     )
     fig.tight_layout()
     os.makedirs(save_dir, exist_ok=True)
-    fname = os.path.join(save_dir, f'fig1_decision_heatmap.{fmt}')
+    tag   = f'_{suffix}' if suffix else ''
+    fname = os.path.join(save_dir, f'fig1_decision_heatmap{tag}.{fmt}')
     fig.savefig(fname, dpi=300, bbox_inches='tight')
     plt.close(fig)
     print(f"  Saved: {fname}")
 
 
 # ── paper-style Figure 2: voltage profile ────────────────────────────────────
-def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title=''):
+def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suffix=''):
     n_algos = len(voltages_dict)
     fig, axes = plt.subplots(n_algos, 1, figsize=(14, 4 * n_algos), squeeze=False)
 
@@ -556,7 +557,8 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title=''):
 
     fig.tight_layout()
     os.makedirs(save_dir, exist_ok=True)
-    fname = os.path.join(save_dir, f'fig2_voltage_profile.{fmt}')
+    tag   = f'_{suffix}' if suffix else ''
+    fname = os.path.join(save_dir, f'fig2_voltage_profile{tag}.{fmt}')
     fig.savefig(fname, dpi=300, bbox_inches='tight')
     plt.close(fig)
     print(f"  Saved: {fname}")
@@ -797,19 +799,40 @@ if __name__ == '__main__':
             mappo_action, mappo_post_obs, _    = inspect_mappo_scenario(
                 args.mappo_model, CRITICAL_OUTAGES_34, args.bus_size, device_str)
 
-            # Fig 1: decision variables heatmap
+            # Fig 1 + 2: critical scenario
             plot_decision_heatmap(
                 {'PPO+GCAPS': ppo_action, 'MAPPO+GCAPS': mappo_action},
-                meta, fig_dir, args.fig_format
+                meta, fig_dir, args.fig_format, suffix='critical'
             )
-
-            # Fig 2: voltage profile per bus/phase
             plot_voltage_profile(
                 {'PPO+GCAPS':   ppo_post_obs['NodeFeat(BusVoltage)'],
                  'MAPPO+GCAPS': mappo_post_obs['NodeFeat(BusVoltage)']},
                 meta['node_list'], fig_dir, args.fig_format,
-                title='Critical Outage (lines 832-858, 852-854, 834-860)'
+                title='Critical Outage (lines 832-858, 852-854, 834-860)',
+                suffix='critical'
             )
+
+            # Fig 1 + 2: first PPO-failed (invalid) scenario
+            if invalid_scenarios:
+                sc      = invalid_scenarios[0]
+                outedges = [tuple(e) for e in sc['outedges']]
+                lines   = ', '.join(f"{u}-{v}" for u, v in sc['outedges'])
+                print(f"  Running inspection on invalid scenario (ep {sc['episode']}: lines {lines}) ...")
+                ppo_inv_action,   ppo_inv_obs,   inv_meta = inspect_ppo_scenario(
+                    args.ppo_model, outedges, args.bus_size)
+                mappo_inv_action, mappo_inv_obs, _        = inspect_mappo_scenario(
+                    args.mappo_model, outedges, args.bus_size, device_str)
+                plot_decision_heatmap(
+                    {'PPO+GCAPS': ppo_inv_action, 'MAPPO+GCAPS': mappo_inv_action},
+                    inv_meta, fig_dir, args.fig_format, suffix='invalid'
+                )
+                plot_voltage_profile(
+                    {'PPO+GCAPS':   ppo_inv_obs['NodeFeat(BusVoltage)'],
+                     'MAPPO+GCAPS': mappo_inv_obs['NodeFeat(BusVoltage)']},
+                    inv_meta['node_list'], fig_dir, args.fig_format,
+                    title=f'PPO-Failed Scenario (ep {sc["episode"]}: lines {lines})',
+                    suffix='invalid'
+                )
 
             # Fig 3: energy served bar chart (median, robust to outliers)
             energy_scenarios = {'Random Episodes': results}
