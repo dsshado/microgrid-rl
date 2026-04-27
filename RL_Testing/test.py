@@ -1047,6 +1047,8 @@ if __name__ == '__main__':
                         help='MAPPO TensorBoard log dir (for convergence plot)')
     parser.add_argument('--n_fault_test', action='store_true',
                         help='Run N-fault scalability test (N=1,2,3,4, 500 episodes each)')
+    parser.add_argument('--n_fault_only', action='store_true',
+                        help='Skip all other evaluations and run only the N-fault test')
     args = parser.parse_args()
 
     device_str = 'cuda:0' if (torch.cuda.is_available() and not args.no_cuda) else 'cpu'
@@ -1057,105 +1059,108 @@ if __name__ == '__main__':
     print(f"Episodes   : {args.n_episodes}")
     print(f"Fig format : {args.fig_format}")
 
-    # ── random episode evaluation ─────────────────────────────────────────────
-    _random_loaded = False
-    if args.load_results:
-        try:
-            print("\n[Load] Loading saved results ...")
-            results           = load_results(data_dir, tag='random')
-            invalid_scenarios = load_invalid_scenarios(data_dir, tag='random')
-            _random_loaded    = True
-            print(f"  Loaded {len(invalid_scenarios)} invalid scenario(s)")
-        except FileNotFoundError as _e:
-            print(f"  [Load] Not found ({_e.filename}) — running evaluation instead.")
-
-    if not _random_loaded:
-        print(f"PPO  model : {args.ppo_model}")
-        print(f"MAPPO model: {args.mappo_model}")
-        results = {}
-
-        print("\n[1/2] Evaluating PPO+GCAPS ...")
-        r, en, vv, invalid_scenarios = evaluate_ppo(
-            args.ppo_model, args.n_episodes, args.bus_size)
-        results['PPO'] = {'reward': r, 'energy_supp': en, 'volt_viol': vv}
-
-        print("\n[2/2] Evaluating MAPPO+GCAPS ...")
-        r, en, vv = evaluate_mappo(
-            args.mappo_model, args.n_episodes, args.bus_size, device_str)
-        results['MAPPO'] = {'reward': r, 'energy_supp': en, 'volt_viol': vv}
-
-        save_results(results, data_dir, tag='random')
-        save_invalid_scenarios(invalid_scenarios, data_dir, tag='random')
-
-    print_comparison(results, args.bus_size, label='Random Episodes')
-    if args.no_paper_figs:
-        plot_comparison(results, args.bus_size, args.plot_dir, fmt=args.fig_format)
-    print_invalid_scenarios(invalid_scenarios)
-
-    # ── invalid scenario replay ───────────────────────────────────────────────
-    inv_results = None
-    if invalid_scenarios:
-        _inv_loaded = False
+    # ── random / invalid / critical / paper figures (skipped by --n_fault_only) ─
+    invalid_scenarios = []
+    results           = {}
+    if not args.n_fault_only:
+        # ── random episode evaluation ─────────────────────────────────────────
+        _random_loaded = False
         if args.load_results:
             try:
-                inv_results = load_results(data_dir, tag='invalid_replay')
-                _inv_loaded = True
-                print("\n[Load] Loaded saved invalid replay results.")
-            except Exception:
-                print("\n[Load] No saved invalid replay results — will re-run.")
-
-        if not _inv_loaded:
-            print(f"\n[Invalid Replay] Replaying {len(invalid_scenarios)} PPO-failed scenario(s) ...")
-            inv_ppo_r,   inv_ppo_en,   inv_ppo_vv   = evaluate_ppo_on_scenarios(
-                args.ppo_model, invalid_scenarios, args.bus_size)
-            inv_mappo_r, inv_mappo_en, inv_mappo_vv = evaluate_mappo_on_scenarios(
-                args.mappo_model, invalid_scenarios, args.bus_size, device_str)
-            inv_results = {
-                'PPO':   {'reward': inv_ppo_r,   'energy_supp': inv_ppo_en,   'volt_viol': inv_ppo_vv},
-                'MAPPO': {'reward': inv_mappo_r, 'energy_supp': inv_mappo_en, 'volt_viol': inv_mappo_vv},
-            }
-            save_results(inv_results, data_dir, tag='invalid_replay')
-
-        print_comparison(inv_results, args.bus_size, label='PPO-Failed Scenarios Replay')
-        if args.no_paper_figs:
-            plot_comparison(inv_results, args.bus_size,
-                            os.path.join(args.plot_dir, 'invalid_replay'), fmt=args.fig_format)
-
-    # ── critical case (34-bus only) ───────────────────────────────────────────
-    crit_results = None
-    if args.bus_size == 34:
-        _crit_loaded = False
-        if args.load_results:
-            try:
-                print("\n[Load] Loading saved critical results ...")
-                crit_results  = load_results(data_dir, tag='critical')
-                _crit_loaded  = True
+                print("\n[Load] Loading saved results ...")
+                results           = load_results(data_dir, tag='random')
+                invalid_scenarios = load_invalid_scenarios(data_dir, tag='random')
+                _random_loaded    = True
+                print(f"  Loaded {len(invalid_scenarios)} invalid scenario(s)")
             except FileNotFoundError as _e:
-                print(f"  [Load] Not found ({_e.filename}) — running critical evaluation instead.")
+                print(f"  [Load] Not found ({_e.filename}) — running evaluation instead.")
 
-        if not _crit_loaded:
-            print("\n[Critical] Evaluating PPO+GCAPS on fixed outage scenario ...")
-            cr_ppo_r, cr_ppo_en, cr_ppo_vv = evaluate_ppo_critical(
+        if not _random_loaded:
+            print(f"PPO  model : {args.ppo_model}")
+            print(f"MAPPO model: {args.mappo_model}")
+
+            print("\n[1/2] Evaluating PPO+GCAPS ...")
+            r, en, vv, invalid_scenarios = evaluate_ppo(
                 args.ppo_model, args.n_episodes, args.bus_size)
-            print("[Critical] Evaluating MAPPO+GCAPS on fixed outage scenario ...")
-            cr_mappo_r, cr_mappo_en, cr_mappo_vv = evaluate_mappo_critical(
-                args.mappo_model, args.n_episodes, args.bus_size, device_str)
-            crit_results = {
-                'PPO':   {'reward': cr_ppo_r,   'energy_supp': cr_ppo_en,   'volt_viol': cr_ppo_vv},
-                'MAPPO': {'reward': cr_mappo_r, 'energy_supp': cr_mappo_en, 'volt_viol': cr_mappo_vv},
-            }
-            save_results(crit_results, data_dir, tag='critical')
+            results['PPO'] = {'reward': r, 'energy_supp': en, 'volt_viol': vv}
 
-        print(f"\nCritical outage scenario: lines 832-858, 852-854, 834-860")
-        print_comparison(crit_results, args.bus_size, label='Critical Outage')
+            print("\n[2/2] Evaluating MAPPO+GCAPS ...")
+            r, en, vv = evaluate_mappo(
+                args.mappo_model, args.n_episodes, args.bus_size, device_str)
+            results['MAPPO'] = {'reward': r, 'energy_supp': en, 'volt_viol': vv}
+
+            save_results(results, data_dir, tag='random')
+            save_invalid_scenarios(invalid_scenarios, data_dir, tag='random')
+
+        print_comparison(results, args.bus_size, label='Random Episodes')
         if args.no_paper_figs:
-            plot_comparison(crit_results, args.bus_size,
-                            os.path.join(args.plot_dir, 'critical'), fmt=args.fig_format)
-    else:
-        print("\n[Critical] Critical case only supported for 34-bus. Skipping.")
+            plot_comparison(results, args.bus_size, args.plot_dir, fmt=args.fig_format)
+        print_invalid_scenarios(invalid_scenarios)
+
+        # ── invalid scenario replay ───────────────────────────────────────────
+        inv_results = None
+        if invalid_scenarios:
+            _inv_loaded = False
+            if args.load_results:
+                try:
+                    inv_results = load_results(data_dir, tag='invalid_replay')
+                    _inv_loaded = True
+                    print("\n[Load] Loaded saved invalid replay results.")
+                except Exception:
+                    print("\n[Load] No saved invalid replay results — will re-run.")
+
+            if not _inv_loaded:
+                print(f"\n[Invalid Replay] Replaying {len(invalid_scenarios)} PPO-failed scenario(s) ...")
+                inv_ppo_r,   inv_ppo_en,   inv_ppo_vv   = evaluate_ppo_on_scenarios(
+                    args.ppo_model, invalid_scenarios, args.bus_size)
+                inv_mappo_r, inv_mappo_en, inv_mappo_vv = evaluate_mappo_on_scenarios(
+                    args.mappo_model, invalid_scenarios, args.bus_size, device_str)
+                inv_results = {
+                    'PPO':   {'reward': inv_ppo_r,   'energy_supp': inv_ppo_en,   'volt_viol': inv_ppo_vv},
+                    'MAPPO': {'reward': inv_mappo_r, 'energy_supp': inv_mappo_en, 'volt_viol': inv_mappo_vv},
+                }
+                save_results(inv_results, data_dir, tag='invalid_replay')
+
+            print_comparison(inv_results, args.bus_size, label='PPO-Failed Scenarios Replay')
+            if args.no_paper_figs:
+                plot_comparison(inv_results, args.bus_size,
+                                os.path.join(args.plot_dir, 'invalid_replay'), fmt=args.fig_format)
+
+        # ── critical case (34-bus only) ───────────────────────────────────────
+        crit_results = None
+        if args.bus_size == 34:
+            _crit_loaded = False
+            if args.load_results:
+                try:
+                    print("\n[Load] Loading saved critical results ...")
+                    crit_results = load_results(data_dir, tag='critical')
+                    _crit_loaded = True
+                except FileNotFoundError as _e:
+                    print(f"  [Load] Not found ({_e.filename}) — running critical evaluation instead.")
+
+            if not _crit_loaded:
+                print("\n[Critical] Evaluating PPO+GCAPS on fixed outage scenario ...")
+                cr_ppo_r, cr_ppo_en, cr_ppo_vv = evaluate_ppo_critical(
+                    args.ppo_model, args.n_episodes, args.bus_size)
+                print("[Critical] Evaluating MAPPO+GCAPS on fixed outage scenario ...")
+                cr_mappo_r, cr_mappo_en, cr_mappo_vv = evaluate_mappo_critical(
+                    args.mappo_model, args.n_episodes, args.bus_size, device_str)
+                crit_results = {
+                    'PPO':   {'reward': cr_ppo_r,   'energy_supp': cr_ppo_en,   'volt_viol': cr_ppo_vv},
+                    'MAPPO': {'reward': cr_mappo_r, 'energy_supp': cr_mappo_en, 'volt_viol': cr_mappo_vv},
+                }
+                save_results(crit_results, data_dir, tag='critical')
+
+            print(f"\nCritical outage scenario: lines 832-858, 852-854, 834-860")
+            print_comparison(crit_results, args.bus_size, label='Critical Outage')
+            if args.no_paper_figs:
+                plot_comparison(crit_results, args.bus_size,
+                                os.path.join(args.plot_dir, 'critical'), fmt=args.fig_format)
+        else:
+            print("\n[Critical] Critical case only supported for 34-bus. Skipping.")
 
     # ── paper-style figures ───────────────────────────────────────────────────
-    if not args.no_paper_figs and args.bus_size == 34:
+    if not args.n_fault_only and not args.no_paper_figs and args.bus_size == 34:
         print("\n[Paper Figures] Generating paper-style figures ...")
         fig_dir = os.path.join(args.plot_dir, 'paper_figures')
         try:
@@ -1231,7 +1236,7 @@ if __name__ == '__main__':
             traceback.print_exc()
 
     # ── N-fault scalability test ──────────────────────────────────────────────
-    if args.n_fault_test:
+    if args.n_fault_test or args.n_fault_only:
         print("\n[N-Fault Test] Running scalability test (N=1,2,3,4) ...")
         N_VALUES     = [1, 2, 3, 4]
         n_fault_eps  = args.n_episodes   # reuse --n_episodes (default 500)
