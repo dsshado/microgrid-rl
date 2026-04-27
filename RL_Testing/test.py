@@ -691,12 +691,18 @@ if __name__ == '__main__':
     print(f"Fig format : {args.fig_format}")
 
     # ── random episode evaluation ─────────────────────────────────────────────
+    _random_loaded = False
     if args.load_results:
-        print("\n[Load] Loading saved results ...")
-        results           = load_results(data_dir, tag='random')
-        invalid_scenarios = load_invalid_scenarios(data_dir, tag='random')
-        print(f"  Loaded {len(invalid_scenarios)} invalid scenario(s)")
-    else:
+        try:
+            print("\n[Load] Loading saved results ...")
+            results           = load_results(data_dir, tag='random')
+            invalid_scenarios = load_invalid_scenarios(data_dir, tag='random')
+            _random_loaded    = True
+            print(f"  Loaded {len(invalid_scenarios)} invalid scenario(s)")
+        except FileNotFoundError as _e:
+            print(f"  [Load] Not found ({_e.filename}) — running evaluation instead.")
+
+    if not _random_loaded:
         print(f"PPO  model : {args.ppo_model}")
         print(f"MAPPO model: {args.mappo_model}")
         results = {}
@@ -751,10 +757,16 @@ if __name__ == '__main__':
     # ── critical case (34-bus only) ───────────────────────────────────────────
     crit_results = None
     if args.bus_size == 34:
+        _crit_loaded = False
         if args.load_results:
-            print("\n[Load] Loading saved critical results ...")
-            crit_results = load_results(data_dir, tag='critical')
-        else:
+            try:
+                print("\n[Load] Loading saved critical results ...")
+                crit_results  = load_results(data_dir, tag='critical')
+                _crit_loaded  = True
+            except FileNotFoundError as _e:
+                print(f"  [Load] Not found ({_e.filename}) — running critical evaluation instead.")
+
+        if not _crit_loaded:
             print("\n[Critical] Evaluating PPO+GCAPS on fixed outage scenario ...")
             cr_ppo_r, cr_ppo_en, cr_ppo_vv = evaluate_ppo_critical(
                 args.ppo_model, args.n_episodes, args.bus_size)
