@@ -38,16 +38,18 @@ _ON_COLAB = os.path.exists('/content')
 
 if _ON_COLAB:
     _D_PLOT_DIR    = '/content/drive/MyDrive/microgrid_models/plots'
+    _D_DATA_DIR    = '/content/drive/MyDrive/microgrid_models/plots/data'
     _D_PPO_MODEL   = '/content/drive/MyDrive/microgrid_models/PPO_GCAPS_34bus_final'
     _D_MAPPO_MODEL = '/content/drive/MyDrive/microgrid_models/MAPPO_GCAPS_34bus_final.pt'
     _D_PPO_LOG     = '/content/drive/MyDrive/microgrid_models/ppo_logs'
     _D_MAPPO_LOG   = '/content/drive/MyDrive/microgrid_models/MAPPO_GCAPS_34bus'
 else:
     _D_PLOT_DIR    = os.path.join(_HERE, 'Results', 'plots')
-    _D_PPO_MODEL   = os.path.join(_ROOT, 'RL_Training', 'Trained_Models', 'PPO_GCAPS_34bus_final')
-    _D_MAPPO_MODEL = os.path.join(_ROOT, 'RL_Training', 'Trained_Models', 'MAPPO_GCAPS_34bus_final.pt')
-    _D_PPO_LOG     = os.path.join(_ROOT, 'RL_Training', 'Logs', 'PPO_34bus')
-    _D_MAPPO_LOG   = os.path.join(_ROOT, 'RL_Training', 'Logs', 'MAPPO_34bus')
+    _D_DATA_DIR    = os.path.join(_HERE, 'TrainedModels')
+    _D_PPO_MODEL   = os.path.join(_HERE, 'TrainedModels', 'PPO_GCAPS_34bus_final')
+    _D_MAPPO_MODEL = os.path.join(_HERE, 'TrainedModels', 'MAPPO_GCAPS_34bus_final.pt')
+    _D_PPO_LOG     = os.path.join(_HERE, 'TrainedModels', 'ppo_logs')
+    _D_MAPPO_LOG   = os.path.join(_HERE, 'TrainedModels', 'MAPPO_logs')
 
 
 # ── environment + network info loader ────────────────────────────────────────
@@ -831,6 +833,8 @@ if __name__ == '__main__':
     parser.add_argument('--plot_dir',     type=str,  default=_D_PLOT_DIR)
     parser.add_argument('--fig_format',   type=str,  default='pdf',
                         choices=['pdf', 'eps', 'png', 'svg'])
+    parser.add_argument('--data_dir',     type=str,  default=_D_DATA_DIR,
+                        help='Directory for saved .npz / .json result files')
     parser.add_argument('--load_results', action='store_true',
                         help='Skip evaluation and re-plot from saved .npz files')
     parser.add_argument('--no_paper_figs', action='store_true',
@@ -842,7 +846,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     device_str = 'cuda:0' if (torch.cuda.is_available() and not args.no_cuda) else 'cpu'
-    data_dir   = os.path.join(args.plot_dir, 'data')
+    data_dir   = args.data_dir
 
     print(f"Bus size   : {args.bus_size}-bus")
     print(f"Device     : {device_str}")
