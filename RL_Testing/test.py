@@ -535,12 +535,23 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suff
     step = max(1, len(node_list) // 20)
 
     for ax, (algo, voltages) in zip(axes.flatten(), voltages_dict.items()):
+        dead_marked = False
         for ph_idx, (ph_label, marker, color) in enumerate(phase_styles):
             v      = voltages[:, ph_idx]
             active = v > 0.01
+            dead   = ~active & (v >= 0)   # de-energized buses (voltage = 0)
+
             if active.any():
                 ax.scatter(x[active], v[active], marker=marker, color=color,
                            label=ph_label, s=25, zorder=3)
+            if dead.any() and not dead_marked:
+                ax.scatter(x[dead], np.zeros(dead.sum()), marker='x',
+                           color='black', s=40, zorder=4,
+                           label='de-energized (V=0)')
+                dead_marked = True
+            elif dead.any():
+                ax.scatter(x[dead], np.zeros(dead.sum()), marker='x',
+                           color='black', s=40, zorder=4)
 
         ax.axhline(1.05, linestyle='--', color='gray', linewidth=0.8, alpha=0.7)
         ax.axhline(0.95, linestyle='--', color='gray', linewidth=0.8, alpha=0.7)
@@ -552,7 +563,7 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suff
             [node_list[i] for i in x[::step]], rotation=45, ha='right', fontsize=7
         )
         ax.legend(loc='lower right', fontsize=8, ncol=3)
-        ax.set_ylim(0.85, 1.15)
+        ax.set_ylim(0, 1.15)
         ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
@@ -834,15 +845,7 @@ if __name__ == '__main__':
                     suffix='invalid'
                 )
 
-            # Fig 3: energy served bar chart (median, robust to outliers)
-            energy_scenarios = {'Random Episodes': results}
-            if crit_results is not None:
-                energy_scenarios['Critical Outage'] = crit_results
-            if inv_results is not None:
-                energy_scenarios['Failed Scenario Replay'] = inv_results
-            plot_energy_bar(energy_scenarios, fig_dir, args.fig_format)
-
-            # Fig 4: training convergence (optional — needs log dirs)
+            # Fig 3: training convergence (optional — needs log dirs)
             if args.ppo_log or args.mappo_log:
                 plot_training_convergence(
                     args.ppo_log, args.mappo_log, fig_dir, args.fig_format)
