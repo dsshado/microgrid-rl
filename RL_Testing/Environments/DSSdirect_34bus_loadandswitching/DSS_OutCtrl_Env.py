@@ -53,18 +53,29 @@ class DSS_OutCtrl_Env(gym.Env):
         self.DSSCktObj, G_init_local, conv_flag = initialize()
         self.G = G_init_local.copy()
 
-        max_rad      = nx.diameter(G_init_local)
-        max_percfail = 0.5
-        nd           = random.choice(list(G_init_local.nodes()))
-        rad          = ceil(uniform(0, max_rad / 2))
+        # Fixed critical outage scenario: pass options={'fixed_outages': [('832','858'), ...]}
+        if options and 'fixed_outages' in options:
+            out_edges = []
+            for (u, v) in options['fixed_outages']:
+                if G_init_local.has_edge(u, v):
+                    out_edges.append((u, v))
+                elif G_init_local.has_edge(v, u):
+                    out_edges.append((v, u))
+            if len(out_edges) == 0:
+                return self.reset()
+        else:
+            max_rad      = nx.diameter(G_init_local)
+            max_percfail = 0.5
+            nd           = random.choice(list(G_init_local.nodes()))
+            rad          = ceil(uniform(0, max_rad / 2))
 
-        Gsub      = nx.ego_graph(G_base, nd, radius=rad, undirected=False)
-        sub_edges = list(Gsub.edges())
-        if len(sub_edges) == 0:
-            return self.reset()
-        out_perc  = uniform(0, max_percfail)
-        N_out     = max(1, math.ceil(len(sub_edges) * out_perc))
-        out_edges = sample(sub_edges, k=N_out)
+            Gsub      = nx.ego_graph(G_base, nd, radius=rad, undirected=False)
+            sub_edges = list(Gsub.edges())
+            if len(sub_edges) == 0:
+                return self.reset()
+            out_perc  = uniform(0, max_percfail)
+            N_out     = max(1, math.ceil(len(sub_edges) * out_perc))
+            out_edges = sample(sub_edges, k=N_out)
 
         for o_e in out_edges:
             (u, v)      = o_e

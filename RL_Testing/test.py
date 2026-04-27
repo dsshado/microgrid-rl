@@ -144,6 +144,69 @@ def evaluate_mappo(model_path: str, n_episodes: int, bus_size: int, device_str: 
     return np.array(rewards), np.array(energy_supps), np.array(volt_viols)
 
 
+# ── critical case evaluation ─────────────────────────────────────────────────
+CRITICAL_OUTAGES_34 = [('832', '858'), ('852', '854'), ('834', '860')]
+
+
+def evaluate_ppo_critical(model_path: str, n_episodes: int, bus_size: int):
+    from stable_baselines3 import PPO
+    from Policies.bus_123.CustomPolicies import ActorCriticGCAPSPolicy
+    from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
+
+    env   = DSS_OutCtrl_Env()
+    model = PPO.load(model_path, env=env)
+
+    rewards, energy_supps, volt_viols = [], [], []
+    for ep in range(n_episodes):
+        obs, _ = env.reset(options={'fixed_outages': CRITICAL_OUTAGES_34})
+        action, _ = model.predict(obs, deterministic=True)
+        obs, reward, terminated, truncated, info = env.step(action)
+        en, vv = _extract_metrics(obs)
+        rewards.append(float(reward))
+        energy_supps.append(en)
+        volt_viols.append(vv)
+    print(f"  PPO  critical mean reward: {np.mean(rewards):.4f}")
+    return np.array(rewards), np.array(energy_supps), np.array(volt_viols)
+
+
+def evaluate_mappo_critical(model_path: str, n_episodes: int, bus_size: int, device_str: str):
+    from RL_Methods.MAPPO.policy import MAPPOPolicy
+    from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
+    from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
+        node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+    )
+
+    env               = DSS_OutCtrl_Env()
+    edge_dim          = env.observation_space['EdgeFeat(Branchflow)'].shape[0]
+    context_input_dim = 1 + 1 + edge_dim
+    agent_bus_indices = build_agent_bus_mapping(node_list, AllSwitches, dispatch_loads, Load_Buses)
+
+    policy = MAPPOPolicy(
+        n_agents=n_actions, features_dim=128, node_dim=3,
+        context_input_dim=context_input_dim,
+        agent_bus_indices=agent_bus_indices, device=device_str,
+    )
+    state_dict = torch.load(model_path, map_location=device_str)
+    policy.load_state_dict(state_dict)
+    policy.eval()
+
+    rewards, energy_supps, volt_viols = [], [], []
+    for ep in range(n_episodes):
+        obs, _ = env.reset(options={'fixed_outages': CRITICAL_OUTAGES_34})
+        current_actions = torch.tensor(
+            _default_actions(bus_size), dtype=torch.float32
+        ).unsqueeze(0).to(device_str)
+        actions, _, _, _, _ = policy.get_actions(obs, current_actions, deterministic=True)
+        action_np = actions.squeeze(0).cpu().numpy().astype(int)
+        obs, reward, terminated, truncated, info = env.step(action_np)
+        en, vv = _extract_metrics(obs)
+        rewards.append(float(reward))
+        energy_supps.append(en)
+        volt_viols.append(vv)
+    print(f"  MAPPO critical mean reward: {np.mean(rewards):.4f}")
+    return np.array(rewards), np.array(energy_supps), np.array(volt_viols)
+
+
 # ── printing results ──────────────────────────────────────────────────────────
 def print_comparison(results: dict, bus_size: int):
     header = f"{'Metric':<25} {'PPO+GCAPS':>15} {'MAPPO+GCAPS':>15}"
@@ -240,4 +303,26 @@ if __name__ == '__main__':
 
     print_comparison(results, args.bus_size)
     plot_comparison(results, args.bus_size, args.plot_dir)
+
+    # ── critical case evaluation (34-bus only) ────────────────────────────────
+    if args.bus_size == 34:
+        print("\n[Critical] Evaluating PPO+GCAPS on fixed outage scenario ...")
+        cr_ppo_r, cr_ppo_en, cr_ppo_vv = evaluate_ppo_critical(
+            args.ppo_model, args.n_episodes, args.bus_size
+        )
+        print("[Critical] Evaluating MAPPO+GCAPS on fixed outage scenario ...")
+        cr_mappo_r, cr_mappo_en, cr_mappo_vv = evaluate_mappo_critical(
+            args.mappo_model, args.n_episodes, args.bus_size, device_str
+        )
+
+        crit_results = {
+            'PPO':   {'reward': cr_ppo_r,   'energy_supp': cr_ppo_en,   'volt_viol': cr_ppo_vv},
+            'MAPPO': {'reward': cr_mappo_r, 'energy_supp': cr_mappo_en, 'volt_viol': cr_mappo_vv},
+        }
+        print(f"\nCritical outage scenario: lines 832-858, 852-854, 834-860")
+        print_comparison(crit_results, args.bus_size)
+        plot_comparison(crit_results, args.bus_size, os.path.join(args.plot_dir, 'critical'))
+    else:
+        print("\n[Critical] Critical case evaluation only supported for 34-bus. Skipping.")
+
     print("Done.")
