@@ -127,7 +127,13 @@ def evaluate_ppo(model_path, n_episodes, bus_size):
         en, vv = _extract_metrics(obs)
         if abs(en) > 10 or abs(vv) > 10:
             invalid_count += 1
-            invalid_scenarios.append([list(e) for e in env.outedges])
+            invalid_scenarios.append({
+                'episode':  ep + 1,
+                'outedges': [list(e) for e in env.outedges],
+                'reward':   float(reward),
+                'energy':   en,
+                'volt_viol': vv,
+            })
         rewards.append(float(reward))
         energy_supps.append(en)
         volt_viols.append(vv)
@@ -191,7 +197,8 @@ def evaluate_ppo_on_scenarios(model_path, scenarios, bus_size):
     model = PPO.load(model_path, env=env)
     rewards, energy_supps, volt_viols = [], [], []
 
-    for i, outedges in enumerate(scenarios):
+    for i, scenario in enumerate(scenarios):
+        outedges = scenario['outedges'] if isinstance(scenario, dict) else scenario
         obs, _ = env.reset(options={'fixed_outages': [tuple(e) for e in outedges]})
         action, _ = model.predict(obs, deterministic=True)
         obs, reward, _, _, _ = env.step(action)
@@ -225,7 +232,8 @@ def evaluate_mappo_on_scenarios(model_path, scenarios, bus_size, device_str):
     policy.eval()
 
     rewards, energy_supps, volt_viols = [], [], []
-    for i, outedges in enumerate(scenarios):
+    for i, scenario in enumerate(scenarios):
+        outedges = scenario['outedges'] if isinstance(scenario, dict) else scenario
         obs, _ = env.reset(options={'fixed_outages': [tuple(e) for e in outedges]})
         current_actions = torch.tensor(
             _default_actions(bus_size), dtype=torch.float32
@@ -362,6 +370,25 @@ def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
         'dispatch_loads': dispatch_loads, 'mask': mask,
     }
     return action_np, post_obs, meta
+
+
+# ── print invalid scenario details ───────────────────────────────────────────
+def print_invalid_scenarios(invalid_scenarios):
+    if not invalid_scenarios:
+        return
+    print(f"\n{'='*55}")
+    print(f"  PPO Failed Scenarios — {len(invalid_scenarios)} episode(s)")
+    print(f"{'='*55}")
+    for i, sc in enumerate(invalid_scenarios):
+        ep       = sc['episode']
+        outedges = sc['outedges']
+        reward   = sc['reward']
+        energy   = sc['energy']
+        vv       = sc['volt_viol']
+        lines    = ', '.join(f"{u}-{v}" for u, v in outedges)
+        print(f"  Episode {ep:4d}  |  Faulted lines: {lines}")
+        print(f"             |  reward={reward:.3f}  energy={energy:.1f}  volt_viol={vv:.1f}")
+    print(f"{'='*55}\n")
 
 
 # ── standard comparison plots ─────────────────────────────────────────────────
@@ -677,6 +704,7 @@ if __name__ == '__main__':
 
     print_comparison(results, args.bus_size, label='Random Episodes')
     plot_comparison(results, args.bus_size, args.plot_dir, fmt=args.fig_format)
+    print_invalid_scenarios(invalid_scenarios)
 
     # ── invalid scenario replay ───────────────────────────────────────────────
     inv_results = None
