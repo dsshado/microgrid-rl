@@ -318,7 +318,7 @@ def inspect_ppo_scenario(model_path, outages, bus_size):
     from Policies.bus_123.CustomPolicies import ActorCriticGCAPSPolicy
     from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
     from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
-        node_list, AllSwitches, sectional_swt, tie_swt, dispatch_loads, n_actions
+        node_list, AllSwitches, dispatch_loads, n_actions
     )
 
     env   = DSS_OutCtrl_Env()
@@ -327,9 +327,15 @@ def inspect_ppo_scenario(model_path, outages, bus_size):
     mask = obs['ActionMasking'].copy()
     action, _ = model.predict(obs, deterministic=True)
     post_obs, _, _, _, _ = env.step(action)
+
+    defaults = _default_actions(bus_size)
+    n_sw   = len(AllSwitches)
+    n_sect = int(defaults[:n_sw].sum())
+    n_tie  = n_sw - n_sect
+
     meta = {
         'node_list': node_list, 'AllSwitches': AllSwitches,
-        'sectional_swt': sectional_swt, 'tie_swt': tie_swt,
+        'n_sect': n_sect, 'n_tie': n_tie,
         'dispatch_loads': dispatch_loads, 'mask': mask,
     }
     return action, post_obs, meta
@@ -339,7 +345,7 @@ def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
     from RL_Methods.MAPPO.policy import MAPPOPolicy
     from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
     from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
-        node_list, AllSwitches, sectional_swt, tie_swt, dispatch_loads, Load_Buses, n_actions
+        node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
     )
 
     env               = DSS_OutCtrl_Env()
@@ -364,9 +370,15 @@ def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
     actions, _, _, _, _ = policy.get_actions(obs, current_actions, deterministic=True)
     action_np = actions.squeeze(0).cpu().numpy().astype(int)
     post_obs, _, _, _, _ = env.step(action_np)
+
+    defaults = _default_actions(bus_size)
+    n_sw   = len(AllSwitches)
+    n_sect = int(defaults[:n_sw].sum())
+    n_tie  = n_sw - n_sect
+
     meta = {
         'node_list': node_list, 'AllSwitches': AllSwitches,
-        'sectional_swt': sectional_swt, 'tie_swt': tie_swt,
+        'n_sect': n_sect, 'n_tie': n_tie,
         'dispatch_loads': dispatch_loads, 'mask': mask,
     }
     return action_np, post_obs, meta
@@ -456,8 +468,8 @@ def plot_comparison(results, bus_size, save_dir, fmt='pdf'):
 
 # ── paper-style Figure 1: decision variables heatmap ─────────────────────────
 def plot_decision_heatmap(actions_dict, meta, save_dir, fmt):
-    n_sect = len(meta['sectional_swt'])
-    n_tie  = len(meta['tie_swt'])
+    n_sect = meta['n_sect']
+    n_tie  = meta['n_tie']
     n_sw   = n_sect + n_tie
     mask   = meta['mask']
 
@@ -703,7 +715,8 @@ if __name__ == '__main__':
         save_invalid_scenarios(invalid_scenarios, data_dir, tag='random')
 
     print_comparison(results, args.bus_size, label='Random Episodes')
-    plot_comparison(results, args.bus_size, args.plot_dir, fmt=args.fig_format)
+    if not args.paper_figs:
+        plot_comparison(results, args.bus_size, args.plot_dir, fmt=args.fig_format)
     print_invalid_scenarios(invalid_scenarios)
 
     # ── invalid scenario replay ───────────────────────────────────────────────
@@ -720,8 +733,9 @@ if __name__ == '__main__':
         }
         print_comparison(inv_results, args.bus_size, label='PPO-Failed Scenarios Replay')
         save_results(inv_results, data_dir, tag='invalid_replay')
-        plot_comparison(inv_results, args.bus_size,
-                        os.path.join(args.plot_dir, 'invalid_replay'), fmt=args.fig_format)
+        if not args.paper_figs:
+            plot_comparison(inv_results, args.bus_size,
+                            os.path.join(args.plot_dir, 'invalid_replay'), fmt=args.fig_format)
 
     # ── critical case (34-bus only) ───────────────────────────────────────────
     crit_results = None
@@ -744,8 +758,9 @@ if __name__ == '__main__':
 
         print(f"\nCritical outage scenario: lines 832-858, 852-854, 834-860")
         print_comparison(crit_results, args.bus_size, label='Critical Outage')
-        plot_comparison(crit_results, args.bus_size,
-                        os.path.join(args.plot_dir, 'critical'), fmt=args.fig_format)
+        if not args.paper_figs:
+            plot_comparison(crit_results, args.bus_size,
+                            os.path.join(args.plot_dir, 'critical'), fmt=args.fig_format)
     else:
         print("\n[Critical] Critical case only supported for 34-bus. Skipping.")
 
@@ -753,40 +768,45 @@ if __name__ == '__main__':
     if args.paper_figs and args.bus_size == 34:
         print("\n[Paper Figures] Generating paper-style figures ...")
         fig_dir = os.path.join(args.plot_dir, 'paper_figures')
+        try:
+            print("  Running single-episode inspection on critical scenario ...")
+            ppo_action,   ppo_post_obs,   meta = inspect_ppo_scenario(
+                args.ppo_model, CRITICAL_OUTAGES_34, args.bus_size)
+            mappo_action, mappo_post_obs, _    = inspect_mappo_scenario(
+                args.mappo_model, CRITICAL_OUTAGES_34, args.bus_size, device_str)
 
-        print("  Running single-episode inspection on critical scenario ...")
-        ppo_action,   ppo_post_obs,   meta = inspect_ppo_scenario(
-            args.ppo_model, CRITICAL_OUTAGES_34, args.bus_size)
-        mappo_action, mappo_post_obs, _    = inspect_mappo_scenario(
-            args.mappo_model, CRITICAL_OUTAGES_34, args.bus_size, device_str)
+            # Fig 1: decision variables heatmap
+            plot_decision_heatmap(
+                {'PPO+GCAPS': ppo_action, 'MAPPO+GCAPS': mappo_action},
+                meta, fig_dir, args.fig_format
+            )
 
-        # Fig 1: decision variables heatmap
-        plot_decision_heatmap(
-            {'PPO+GCAPS': ppo_action, 'MAPPO+GCAPS': mappo_action},
-            meta, fig_dir, args.fig_format
-        )
+            # Fig 2: voltage profile per bus/phase
+            plot_voltage_profile(
+                {'PPO+GCAPS':   ppo_post_obs['NodeFeat(BusVoltage)'],
+                 'MAPPO+GCAPS': mappo_post_obs['NodeFeat(BusVoltage)']},
+                meta['node_list'], fig_dir, args.fig_format,
+                title='Critical Outage (lines 832-858, 852-854, 834-860)'
+            )
 
-        # Fig 2: voltage profile per bus/phase
-        plot_voltage_profile(
-            {'PPO+GCAPS':   ppo_post_obs['NodeFeat(BusVoltage)'],
-             'MAPPO+GCAPS': mappo_post_obs['NodeFeat(BusVoltage)']},
-            meta['node_list'], fig_dir, args.fig_format,
-            title='Critical Outage (lines 832-858, 852-854, 834-860)'
-        )
+            # Fig 3: energy served bar chart (median, robust to outliers)
+            energy_scenarios = {'Random Episodes': results}
+            if crit_results is not None:
+                energy_scenarios['Critical Outage'] = crit_results
+            if inv_results is not None:
+                energy_scenarios['Failed Scenario Replay'] = inv_results
+            plot_energy_bar(energy_scenarios, fig_dir, args.fig_format)
 
-        # Fig 3: energy served bar chart (median, robust to outliers)
-        energy_scenarios = {'Random Episodes': results}
-        if crit_results is not None:
-            energy_scenarios['Critical Outage'] = crit_results
-        if inv_results is not None:
-            energy_scenarios['Failed Scenario Replay'] = inv_results
-        plot_energy_bar(energy_scenarios, fig_dir, args.fig_format)
+            # Fig 4: training convergence (optional — needs log dirs)
+            if args.ppo_log or args.mappo_log:
+                plot_training_convergence(
+                    args.ppo_log, args.mappo_log, fig_dir, args.fig_format)
+            else:
+                print("  Skipping convergence plot — provide --ppo_log and/or --mappo_log")
 
-        # Fig 4: training convergence (optional — needs log dirs)
-        if args.ppo_log or args.mappo_log:
-            plot_training_convergence(
-                args.ppo_log, args.mappo_log, fig_dir, args.fig_format)
-        else:
-            print("  Skipping convergence plot — provide --ppo_log and/or --mappo_log")
+        except Exception as _e:
+            import traceback
+            print(f"\n[Paper Figures] ERROR: {_e}")
+            traceback.print_exc()
 
     print("Done.")
