@@ -317,7 +317,7 @@ def inspect_ppo_scenario(model_path, outages, bus_size):
     from Policies.bus_123.CustomPolicies import ActorCriticGCAPSPolicy
     from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
     from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
-        node_list, AllSwitches, dispatch_loads, n_actions
+        node_list, AllSwitches, dispatch_loads, n_actions, G_init
     )
 
     env   = DSS_OutCtrl_Env()
@@ -336,15 +336,16 @@ def inspect_ppo_scenario(model_path, outages, bus_size):
         'node_list': node_list, 'AllSwitches': AllSwitches,
         'n_sect': n_sect, 'n_tie': n_tie,
         'dispatch_loads': dispatch_loads, 'mask': mask,
+        'G': G_init,
     }
-    return action, post_obs, meta
+    return action, post_obs, meta, list(env.outedges)
 
 
 def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
     from RL_Methods.MAPPO.policy import MAPPOPolicy
     from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
     from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
-        node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+        node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions, G_init
     )
 
     env               = DSS_OutCtrl_Env()
@@ -379,8 +380,118 @@ def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
         'node_list': node_list, 'AllSwitches': AllSwitches,
         'n_sect': n_sect, 'n_tie': n_tie,
         'dispatch_loads': dispatch_loads, 'mask': mask,
+        'G': G_init,
     }
-    return action_np, post_obs, meta
+    return action_np, post_obs, meta, list(env.outedges)
+
+
+# ── paper-style: network topology graph ──────────────────────────────────────
+def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
+                          save_dir, fmt, suffix='', title=''):
+    import networkx as nx
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    G          = meta['G']
+    node_list  = meta['node_list']
+    AllSwitches = meta['AllSwitches']
+    n_sw       = meta['n_sect'] + meta['n_tie']
+
+    # Build lookup: (from_bus, to_bus) -> switch index  (both directions)
+    sw_lookup = {}
+    for i, sw in enumerate(AllSwitches):
+        fb, tb = sw['from bus'], sw['to bus']
+        sw_lookup[(fb, tb)] = i
+        sw_lookup[(tb, fb)] = i
+
+    # Faulted edge set (both directions)
+    fault_set = set()
+    for e in outedges:
+        fault_set.add((str(e[0]), str(e[1])))
+        fault_set.add((str(e[1]), str(e[0])))
+
+    # Layout — kamada-kawai gives clean planar layout for radial networks
+    try:
+        pos = nx.kamada_kawai_layout(G)
+    except Exception:
+        pos = nx.spring_layout(G, seed=42)
+
+    n_algos = len(actions_dict)
+    fig, axes = plt.subplots(1, n_algos,
+                             figsize=(11 * n_algos, 9), squeeze=False)
+
+    for ax, (algo, action) in zip(axes[0], actions_dict.items()):
+        voltages = post_obs_dict[algo]['NodeFeat(BusVoltage)']
+        v_mean   = voltages.mean(axis=1)  # average across phases per bus
+
+        # Node colours
+        node_colors = []
+        for i, bus in enumerate(G.nodes()):
+            idx = node_list.index(bus) if bus in node_list else -1
+            v   = v_mean[idx] if idx >= 0 else 0.0
+            if v < 0.01:
+                node_colors.append('#b0b0b0')   # grey  — de-energized
+            elif v < 0.95 or v > 1.05:
+                node_colors.append('#e05c5c')   # red   — voltage violation
+            else:
+                node_colors.append('#74c476')   # green — normal
+
+        # Classify edges
+        normal_edges     = []
+        closed_sw_edges  = []
+        open_sw_edges    = []
+        fault_edges      = []
+
+        for u, v in G.edges():
+            key = (str(u), str(v))
+            if key in fault_set:
+                fault_edges.append((u, v))
+            elif key in sw_lookup or (str(v), str(u)) in sw_lookup:
+                idx = sw_lookup.get(key) or sw_lookup.get((str(v), str(u)))
+                if idx < len(action) and action[idx] == 1:
+                    closed_sw_edges.append((u, v))
+                else:
+                    open_sw_edges.append((u, v))
+            else:
+                normal_edges.append((u, v))
+
+        nx.draw_networkx_edges(G, pos, edgelist=normal_edges,
+                               ax=ax, edge_color='#333333', width=1.5)
+        nx.draw_networkx_edges(G, pos, edgelist=closed_sw_edges,
+                               ax=ax, edge_color='#2ca02c', width=3)
+        nx.draw_networkx_edges(G, pos, edgelist=open_sw_edges,
+                               ax=ax, edge_color='#ff7f0e', width=2.5,
+                               style='dashed')
+        nx.draw_networkx_edges(G, pos, edgelist=fault_edges,
+                               ax=ax, edge_color='#d62728', width=3,
+                               style='dashed')
+
+        nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors,
+                               node_size=350, edgecolors='black', linewidths=0.8)
+        nx.draw_networkx_labels(G, pos, ax=ax, font_size=6, font_weight='bold')
+
+        ax.set_title(f'{algo}', fontsize=13, fontweight='bold')
+        ax.axis('off')
+
+        legend = [
+            Line2D([0], [0], color='#333333', lw=2,   label='Line (closed)'),
+            Line2D([0], [0], color='#2ca02c', lw=3,   label='Switch (closed)'),
+            Line2D([0], [0], color='#ff7f0e', lw=2.5, linestyle='--', label='Switch (open)'),
+            Line2D([0], [0], color='#d62728', lw=3,   linestyle='--', label='Faulted line'),
+            Patch(facecolor='#74c476', edgecolor='black', label='Normal voltage'),
+            Patch(facecolor='#e05c5c', edgecolor='black', label='Voltage violation'),
+            Patch(facecolor='#b0b0b0', edgecolor='black', label='De-energized'),
+        ]
+        ax.legend(handles=legend, loc='lower left', fontsize=8, framealpha=0.9)
+
+    fig.suptitle(title, fontsize=12, y=1.01)
+    fig.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    tag   = f'_{suffix}' if suffix else ''
+    fname = os.path.join(save_dir, f'fig_network_topology{tag}.{fmt}')
+    fig.savefig(fname, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {fname}")
 
 
 # ── print invalid scenario details ───────────────────────────────────────────
@@ -805,33 +916,43 @@ if __name__ == '__main__':
         fig_dir = os.path.join(args.plot_dir, 'paper_figures')
         try:
             print("  Running single-episode inspection on critical scenario ...")
-            ppo_action,   ppo_post_obs,   meta = inspect_ppo_scenario(
+            ppo_action,   ppo_post_obs,   meta,     crit_outedges = inspect_ppo_scenario(
                 args.ppo_model, CRITICAL_OUTAGES_34, args.bus_size)
-            mappo_action, mappo_post_obs, _    = inspect_mappo_scenario(
+            mappo_action, mappo_post_obs, _,         _            = inspect_mappo_scenario(
                 args.mappo_model, CRITICAL_OUTAGES_34, args.bus_size, device_str)
 
-            # Fig 1 + 2: critical scenario
+            crit_title = 'Critical Outage (lines 832-858, 852-854, 834-860)'
+
+            # Decision heatmap — critical
             plot_decision_heatmap(
                 {'PPO+GCAPS': ppo_action, 'MAPPO+GCAPS': mappo_action},
                 meta, fig_dir, args.fig_format, suffix='critical'
             )
+            # Voltage profile — critical
             plot_voltage_profile(
                 {'PPO+GCAPS':   ppo_post_obs['NodeFeat(BusVoltage)'],
                  'MAPPO+GCAPS': mappo_post_obs['NodeFeat(BusVoltage)']},
                 meta['node_list'], fig_dir, args.fig_format,
-                title='Critical Outage (lines 832-858, 852-854, 834-860)',
-                suffix='critical'
+                title=crit_title, suffix='critical'
+            )
+            # Network topology graph — critical
+            plot_network_topology(
+                {'PPO+GCAPS': ppo_action, 'MAPPO+GCAPS': mappo_action},
+                {'PPO+GCAPS': ppo_post_obs, 'MAPPO+GCAPS': mappo_post_obs},
+                crit_outedges, meta, fig_dir, args.fig_format,
+                suffix='critical', title=crit_title
             )
 
-            # Fig 1 + 2: first PPO-failed (invalid) scenario
+            # Same three figures for first PPO-failed (invalid) scenario
             if invalid_scenarios:
-                sc      = invalid_scenarios[0]
+                sc       = invalid_scenarios[0]
                 outedges = [tuple(e) for e in sc['outedges']]
-                lines   = ', '.join(f"{u}-{v}" for u, v in sc['outedges'])
+                lines    = ', '.join(f"{u}-{v}" for u, v in sc['outedges'])
+                inv_title = f'PPO-Failed Scenario (ep {sc["episode"]}: lines {lines})'
                 print(f"  Running inspection on invalid scenario (ep {sc['episode']}: lines {lines}) ...")
-                ppo_inv_action,   ppo_inv_obs,   inv_meta = inspect_ppo_scenario(
+                ppo_inv_action,   ppo_inv_obs,   inv_meta, inv_outedges = inspect_ppo_scenario(
                     args.ppo_model, outedges, args.bus_size)
-                mappo_inv_action, mappo_inv_obs, _        = inspect_mappo_scenario(
+                mappo_inv_action, mappo_inv_obs, _,        _            = inspect_mappo_scenario(
                     args.mappo_model, outedges, args.bus_size, device_str)
                 plot_decision_heatmap(
                     {'PPO+GCAPS': ppo_inv_action, 'MAPPO+GCAPS': mappo_inv_action},
@@ -841,8 +962,13 @@ if __name__ == '__main__':
                     {'PPO+GCAPS':   ppo_inv_obs['NodeFeat(BusVoltage)'],
                      'MAPPO+GCAPS': mappo_inv_obs['NodeFeat(BusVoltage)']},
                     inv_meta['node_list'], fig_dir, args.fig_format,
-                    title=f'PPO-Failed Scenario (ep {sc["episode"]}: lines {lines})',
-                    suffix='invalid'
+                    title=inv_title, suffix='invalid'
+                )
+                plot_network_topology(
+                    {'PPO+GCAPS': ppo_inv_action, 'MAPPO+GCAPS': mappo_inv_action},
+                    {'PPO+GCAPS': ppo_inv_obs, 'MAPPO+GCAPS': mappo_inv_obs},
+                    inv_outedges, inv_meta, fig_dir, args.fig_format,
+                    suffix='invalid', title=inv_title
                 )
 
             # Fig 3: training convergence (optional — needs log dirs)
