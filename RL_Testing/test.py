@@ -76,17 +76,21 @@ def evaluate_ppo(model_path: str, n_episodes: int, bus_size: int):
     model = PPO.load(model_path, env=env)
 
     rewards, energy_supps, volt_viols = [], [], []
+    invalid_count = 0
     for ep in range(n_episodes):
         obs, _ = env.reset()
         action, _ = model.predict(obs, deterministic=True)
         obs, reward, terminated, truncated, info = env.step(action)
         en, vv = _extract_metrics(obs)
+        if abs(en) > 10 or abs(vv) > 10:
+            invalid_count += 1
         rewards.append(float(reward))
         energy_supps.append(en)
         volt_viols.append(vv)
         if (ep + 1) % 10 == 0:
             print(f"  PPO  ep {ep+1:4d}/{n_episodes}  reward={reward:.3f}")
 
+    print(f"  PPO  invalid episodes: {invalid_count}/{n_episodes}")
     return np.array(rewards), np.array(energy_supps), np.array(volt_viols)
 
 
@@ -115,6 +119,7 @@ def evaluate_mappo(model_path: str, n_episodes: int, bus_size: int, device_str: 
     policy.eval()
 
     rewards, energy_supps, volt_viols = [], [], []
+    invalid_count = 0
     for ep in range(n_episodes):
         obs, _ = env.reset()
         current_actions = torch.tensor(
@@ -126,11 +131,15 @@ def evaluate_mappo(model_path: str, n_episodes: int, bus_size: int, device_str: 
 
         obs, reward, terminated, truncated, info = env.step(action_np)
         en, vv = _extract_metrics(obs)
+        if abs(en) > 10 or abs(vv) > 10:
+            invalid_count += 1
         rewards.append(float(reward))
         energy_supps.append(en)
         volt_viols.append(vv)
         if (ep + 1) % 10 == 0:
             print(f"  MAPPO ep {ep+1:4d}/{n_episodes}  reward={reward:.3f}")
+
+    print(f"  MAPPO invalid episodes: {invalid_count}/{n_episodes}")
 
     return np.array(rewards), np.array(energy_supps), np.array(volt_viols)
 
