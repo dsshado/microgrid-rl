@@ -440,6 +440,8 @@ if __name__ == '__main__':
         }
         print_comparison(inv_results, args.bus_size, label='PPO-Failed Scenarios Replay')
         save_results(inv_results, data_dir, tag='invalid_replay')
+        plot_comparison(inv_results, args.bus_size,
+                        os.path.join(args.plot_dir, 'invalid_replay'), fmt=args.fig_format)
 
     # ── critical case evaluation (34-bus only) ────────────────────────────────
     if args.bus_size == 34:
