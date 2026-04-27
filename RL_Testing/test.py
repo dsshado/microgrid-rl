@@ -33,6 +33,22 @@ _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _HERE)
 sys.path.insert(0, _ROOT)
 
+# ── environment detection ─────────────────────────────────────────────────────
+_ON_COLAB = os.path.exists('/content')
+
+if _ON_COLAB:
+    _D_PLOT_DIR    = '/content/drive/MyDrive/microgrid_models/plots'
+    _D_PPO_MODEL   = '/content/drive/MyDrive/microgrid_models/PPO_GCAPS_34bus_final'
+    _D_MAPPO_MODEL = '/content/drive/MyDrive/microgrid_models/MAPPO_GCAPS_34bus_final.pt'
+    _D_PPO_LOG     = '/content/drive/MyDrive/microgrid_models/ppo_logs'
+    _D_MAPPO_LOG   = '/content/drive/MyDrive/microgrid_models/MAPPO_GCAPS_34bus'
+else:
+    _D_PLOT_DIR    = os.path.join(_HERE, 'Results', 'plots')
+    _D_PPO_MODEL   = os.path.join(_ROOT, 'RL_Training', 'Trained_Models', 'PPO_GCAPS_34bus_final')
+    _D_MAPPO_MODEL = os.path.join(_ROOT, 'RL_Training', 'Trained_Models', 'MAPPO_GCAPS_34bus_final.pt')
+    _D_PPO_LOG     = os.path.join(_ROOT, 'RL_Training', 'Logs', 'PPO_34bus')
+    _D_MAPPO_LOG   = os.path.join(_ROOT, 'RL_Training', 'Logs', 'MAPPO_34bus')
+
 
 # ── environment + network info loader ────────────────────────────────────────
 def load_env_and_info(bus_size: int):
@@ -807,23 +823,21 @@ def plot_training_convergence(ppo_log, mappo_log, save_dir, fmt):
 # ── main ──────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Evaluate PPO+GCAPS vs MAPPO+GCAPS")
-    parser.add_argument('--bus_size',     type=int,  default=123, choices=[34, 123])
-    parser.add_argument('--ppo_model',    type=str,
-                        default='../RL_Training/Trained_Models/PPO_GCAPS_123bus_final')
-    parser.add_argument('--mappo_model',  type=str,
-                        default='../RL_Training/Trained_Models/MAPPO_GCAPS_123bus_final.pt')
+    parser.add_argument('--bus_size',     type=int,  default=34, choices=[34, 123])
+    parser.add_argument('--ppo_model',    type=str,  default=_D_PPO_MODEL)
+    parser.add_argument('--mappo_model',  type=str,  default=_D_MAPPO_MODEL)
     parser.add_argument('--n_episodes',   type=int,  default=500)
     parser.add_argument('--no_cuda',      action='store_true')
-    parser.add_argument('--plot_dir',     type=str,  default='/content/drive/MyDrive/microgrid_models/plots')
+    parser.add_argument('--plot_dir',     type=str,  default=_D_PLOT_DIR)
     parser.add_argument('--fig_format',   type=str,  default='pdf',
                         choices=['pdf', 'eps', 'png', 'svg'])
     parser.add_argument('--load_results', action='store_true',
                         help='Skip evaluation and re-plot from saved .npz files')
     parser.add_argument('--no_paper_figs', action='store_true',
                         help='Disable paper-style figures (paper figs are on by default)')
-    parser.add_argument('--ppo_log',      type=str,  default=None,
+    parser.add_argument('--ppo_log',      type=str,  default=_D_PPO_LOG,
                         help='PPO training log dir (for convergence plot)')
-    parser.add_argument('--mappo_log',    type=str,  default=None,
+    parser.add_argument('--mappo_log',    type=str,  default=_D_MAPPO_LOG,
                         help='MAPPO TensorBoard log dir (for convergence plot)')
     args = parser.parse_args()
 
