@@ -317,7 +317,7 @@ def inspect_ppo_scenario(model_path, outages, bus_size):
     from Policies.bus_123.CustomPolicies import ActorCriticGCAPSPolicy
     from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
     from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
-        node_list, AllSwitches, dispatch_loads, n_actions, G_init
+        node_list, AllSwitches, dispatch_loads, n_actions, G_init, generators
     )
 
     env   = DSS_OutCtrl_Env()
@@ -336,7 +336,7 @@ def inspect_ppo_scenario(model_path, outages, bus_size):
         'node_list': node_list, 'AllSwitches': AllSwitches,
         'n_sect': n_sect, 'n_tie': n_tie,
         'dispatch_loads': dispatch_loads, 'mask': mask,
-        'G': G_init,
+        'G': G_init, 'generators': generators,
     }
     return action, post_obs, meta, list(env.outedges)
 
@@ -345,7 +345,7 @@ def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
     from RL_Methods.MAPPO.policy import MAPPOPolicy
     from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
     from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
-        node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions, G_init
+        node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions, G_init, generators
     )
 
     env               = DSS_OutCtrl_Env()
@@ -380,7 +380,7 @@ def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
         'node_list': node_list, 'AllSwitches': AllSwitches,
         'n_sect': n_sect, 'n_tie': n_tie,
         'dispatch_loads': dispatch_loads, 'mask': mask,
-        'G': G_init,
+        'G': G_init, 'generators': generators,
     }
     return action_np, post_obs, meta, list(env.outedges)
 
@@ -470,6 +470,24 @@ def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
                                node_size=350, edgecolors='black', linewidths=0.8)
         nx.draw_networkx_labels(G, pos, ax=ax, font_size=6, font_weight='bold')
 
+        # Overlay DER symbols
+        gf_forming_buses = [g['bus'] for g in meta['generators'] if g['Gridforming'] == 'Yes']
+        gf_feeding_buses = [g['bus'] for g in meta['generators'] if g['Gridforming'] == 'No']
+
+        def _der_xy(buses):
+            xs = [pos[b][0] for b in buses if b in pos]
+            ys = [pos[b][1] for b in buses if b in pos]
+            return xs, ys
+
+        xf, yf = _der_xy(gf_forming_buses)
+        xp, yp = _der_xy(gf_feeding_buses)
+        if xf:
+            ax.scatter(xf, yf, marker='*', s=400, color='gold',
+                       edgecolors='black', linewidths=0.8, zorder=6)
+        if xp:
+            ax.scatter(xp, yp, marker='D', s=160, color='dodgerblue',
+                       edgecolors='black', linewidths=0.8, zorder=6)
+
         ax.set_title(f'{algo}', fontsize=13, fontweight='bold')
         ax.axis('off')
 
@@ -481,6 +499,10 @@ def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
             Patch(facecolor='#74c476', edgecolor='black', label='Normal voltage'),
             Patch(facecolor='#e05c5c', edgecolor='black', label='Voltage violation'),
             Patch(facecolor='#b0b0b0', edgecolor='black', label='De-energized'),
+            Line2D([0], [0], marker='*', color='w', markerfacecolor='gold',
+                   markeredgecolor='black', markersize=14, label='Grid-forming DER'),
+            Line2D([0], [0], marker='D', color='w', markerfacecolor='dodgerblue',
+                   markeredgecolor='black', markersize=9,  label='Grid-feeding DER'),
         ]
         ax.legend(handles=legend, loc='lower left', fontsize=8, framealpha=0.9)
 
