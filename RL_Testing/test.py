@@ -14,6 +14,12 @@ Usage:
     python test.py --bus_size 34
                    --ppo_log /content/drive/.../ppo_logs
                    --mappo_log /content/drive/.../MAPPO_GCAPS_34bus
+
+    # N-fault scalability test (N=1,2,3,4 × 500 episodes)
+    python test.py --bus_size 34 --n_fault_test
+
+    # Re-plot N-fault from saved results
+    python test.py --bus_size 34 --n_fault_test --load_results
 """
 
 import sys
@@ -327,6 +333,146 @@ def evaluate_mappo_critical(model_path, n_episodes, bus_size, device_str):
         volt_viols.append(vv)
     print(f"  MAPPO critical mean reward: {np.mean(rewards):.4f}")
     return np.array(rewards), np.array(energy_supps), np.array(volt_viols)
+
+
+# ── N-fault scalability test ─────────────────────────────────────────────────
+def _fault_candidates(bus_size):
+    """Non-switch edges that can be faulted."""
+    if bus_size == 34:
+        from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
+            AllSwitches, G_init
+        )
+    else:
+        from Environments.DSSdirect_123bus_loadandswitching.DSS_Initialize import (
+            AllSwitches, G_init
+        )
+    sw_set = set()
+    for sw in AllSwitches:
+        sw_set.add((sw['from bus'], sw['to bus']))
+        sw_set.add((sw['to bus'], sw['from bus']))
+    return [(u, v) for u, v in G_init.edges()
+            if (u, v) not in sw_set and (v, u) not in sw_set]
+
+
+def evaluate_ppo_n_faults(model_path, n_faults, n_episodes, bus_size):
+    import random
+    from stable_baselines3 import PPO
+    from Policies.bus_123.CustomPolicies import ActorCriticGCAPSPolicy
+    from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
+
+    env       = DSS_OutCtrl_Env()
+    model     = PPO.load(model_path, env=env)
+    candidates = _fault_candidates(bus_size)
+
+    rewards, energy_supps, volt_viols = [], [], []
+    invalid_count = 0
+
+    for ep in range(n_episodes):
+        outages = random.sample(candidates, min(n_faults, len(candidates)))
+        obs, _  = env.reset(options={'fixed_outages': outages})
+        action, _ = model.predict(obs, deterministic=True)
+        obs, reward, _, _, _ = env.step(action)
+        en, vv = _extract_metrics(obs)
+        if abs(en) > 10 or abs(vv) > 10:
+            invalid_count += 1
+        rewards.append(float(reward))
+        energy_supps.append(en)
+        volt_viols.append(vv)
+
+    print(f"  PPO  N={n_faults}: mean_reward={np.mean(rewards):.3f}  invalid={invalid_count}/{n_episodes}")
+    return np.array(rewards), np.array(energy_supps), np.array(volt_viols), invalid_count
+
+
+def evaluate_mappo_n_faults(model_path, n_faults, n_episodes, bus_size, device_str):
+    import random
+    from RL_Methods.MAPPO.policy import MAPPOPolicy
+    from Environments.DSSdirect_34bus_loadandswitching.DSS_OutCtrl_Env import DSS_OutCtrl_Env
+    from Environments.DSSdirect_34bus_loadandswitching.DSS_Initialize import (
+        node_list, AllSwitches, dispatch_loads, Load_Buses, n_actions
+    )
+
+    env               = DSS_OutCtrl_Env()
+    edge_dim          = env.observation_space['EdgeFeat(Branchflow)'].shape[0]
+    context_input_dim = 1 + 1 + edge_dim
+    agent_bus_indices = build_agent_bus_mapping(node_list, AllSwitches, dispatch_loads, Load_Buses)
+
+    policy = MAPPOPolicy(
+        n_agents=n_actions, features_dim=128, node_dim=3,
+        context_input_dim=context_input_dim,
+        agent_bus_indices=agent_bus_indices, device=device_str,
+    )
+    state_dict = torch.load(model_path, map_location=device_str)
+    policy.load_state_dict(state_dict)
+    policy.eval()
+
+    candidates = _fault_candidates(bus_size)
+    rewards, energy_supps, volt_viols = [], [], []
+    invalid_count = 0
+
+    for ep in range(n_episodes):
+        outages = random.sample(candidates, min(n_faults, len(candidates)))
+        obs, _  = env.reset(options={'fixed_outages': outages})
+        current_actions = torch.tensor(
+            _default_actions(bus_size), dtype=torch.float32
+        ).unsqueeze(0).to(device_str)
+        actions, _, _, _, _ = policy.get_actions(obs, current_actions, deterministic=True)
+        action_np = actions.squeeze(0).cpu().numpy().astype(int)
+        obs, reward, _, _, _ = env.step(action_np)
+        en, vv = _extract_metrics(obs)
+        if abs(en) > 10 or abs(vv) > 10:
+            invalid_count += 1
+        rewards.append(float(reward))
+        energy_supps.append(en)
+        volt_viols.append(vv)
+
+    print(f"  MAPPO N={n_faults}: mean_reward={np.mean(rewards):.3f}  invalid={invalid_count}/{n_episodes}")
+    return np.array(rewards), np.array(energy_supps), np.array(volt_viols), invalid_count
+
+
+def plot_n_fault_comparison(n_fault_results, save_dir, fmt):
+    ns     = sorted(n_fault_results.keys())
+    fig, axes = plt.subplots(1, 3, figsize=(14, 5))
+
+    configs = [
+        ('energy_supp', 'Mean Energy Supplied (p.u.)'),
+        ('reward',      'Mean Reward'),
+        ('fail_rate',   'Failure Rate (%)'),
+    ]
+
+    for ax, (metric, ylabel) in zip(axes, configs):
+        for algo, color, marker in [('PPO', 'steelblue', 'o'), ('MAPPO', 'tomato', 's')]:
+            if metric == 'fail_rate':
+                vals = [float(n_fault_results[n][algo]['fail_rate']) * 100 for n in ns]
+                ax.plot(ns, vals, marker=marker, color=color, linewidth=2,
+                        markersize=8, label=f'{algo}+GCAPS')
+            else:
+                data  = [n_fault_results[n][algo][metric] for n in ns]
+                # exclude invalid episodes for mean
+                means = [np.mean(d[np.abs(d) <= 10]) if np.any(np.abs(d) <= 10)
+                         else 0 for d in data]
+                stds  = [np.std(d[np.abs(d) <= 10])  if np.any(np.abs(d) <= 10)
+                         else 0 for d in data]
+                ax.errorbar(ns, means, yerr=stds, marker=marker, color=color,
+                            linewidth=2, markersize=8, capsize=5,
+                            label=f'{algo}+GCAPS')
+
+        ax.set_xlabel('Number of Simultaneous Faults (N)')
+        ax.set_ylabel(ylabel)
+        ax.set_xticks(ns)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(
+        'Scalability Test — Performance vs Number of Simultaneous Faults\n'
+        '(500 random episodes per N, mean ± std on valid episodes)',
+        fontsize=11
+    )
+    fig.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    fname = os.path.join(save_dir, f'fig_n_fault_comparison.{fmt}')
+    fig.savefig(fname, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {fname}")
 
 
 # ── single-episode inspection (for paper figures) ─────────────────────────────
@@ -899,6 +1045,8 @@ if __name__ == '__main__':
                         help='PPO training log dir (for convergence plot)')
     parser.add_argument('--mappo_log',    type=str,  default=_D_MAPPO_LOG,
                         help='MAPPO TensorBoard log dir (for convergence plot)')
+    parser.add_argument('--n_fault_test', action='store_true',
+                        help='Run N-fault scalability test (N=1,2,3,4, 500 episodes each)')
     args = parser.parse_args()
 
     device_str = 'cuda:0' if (torch.cuda.is_available() and not args.no_cuda) else 'cpu'
@@ -1081,5 +1229,56 @@ if __name__ == '__main__':
             import traceback
             print(f"\n[Paper Figures] ERROR: {_e}")
             traceback.print_exc()
+
+    # ── N-fault scalability test ──────────────────────────────────────────────
+    if args.n_fault_test:
+        print("\n[N-Fault Test] Running scalability test (N=1,2,3,4) ...")
+        N_VALUES     = [1, 2, 3, 4]
+        n_fault_eps  = args.n_episodes   # reuse --n_episodes (default 500)
+        n_fault_results = {}
+
+        for n_f in N_VALUES:
+            tag_nf = f'nfault_{n_f}'
+            n_fault_results[n_f] = {}
+            _loaded = False
+
+            if args.load_results:
+                try:
+                    r = load_results(data_dir, tag=tag_nf)
+                    n_fault_results[n_f] = r
+                    _loaded = True
+                    print(f"  [Load] Loaded N={n_f} results from {data_dir}")
+                except FileNotFoundError:
+                    print(f"  [Load] N={n_f} not found — running evaluation.")
+
+            if not _loaded:
+                print(f"\n  [N={n_f}] PPO evaluation ({n_fault_eps} episodes) ...")
+                ppo_r, ppo_en, ppo_vv, ppo_inv = evaluate_ppo_n_faults(
+                    args.ppo_model, n_f, n_fault_eps, args.bus_size)
+
+                print(f"  [N={n_f}] MAPPO evaluation ({n_fault_eps} episodes) ...")
+                mpo_r, mpo_en, mpo_vv, mpo_inv = evaluate_mappo_n_faults(
+                    args.mappo_model, n_f, n_fault_eps, args.bus_size, device_str)
+
+                n_fault_results[n_f] = {
+                    'PPO':   {
+                        'reward':      ppo_r,
+                        'energy_supp': ppo_en,
+                        'volt_viol':   ppo_vv,
+                        'fail_rate':   np.array([ppo_inv / n_fault_eps]),
+                    },
+                    'MAPPO': {
+                        'reward':      mpo_r,
+                        'energy_supp': mpo_en,
+                        'volt_viol':   mpo_vv,
+                        'fail_rate':   np.array([mpo_inv / n_fault_eps]),
+                    },
+                }
+                save_results(n_fault_results[n_f], data_dir, tag=tag_nf)
+
+        # Plot the comparison figure
+        nf_fig_dir = os.path.join(args.plot_dir, 'paper_figures')
+        plot_n_fault_comparison(n_fault_results, nf_fig_dir, args.fig_format)
+        print("[N-Fault Test] Done.")
 
     print("Done.")
