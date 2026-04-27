@@ -722,17 +722,28 @@ if __name__ == '__main__':
     # ── invalid scenario replay ───────────────────────────────────────────────
     inv_results = None
     if invalid_scenarios:
-        print(f"\n[Invalid Replay] Replaying {len(invalid_scenarios)} PPO-failed scenario(s) ...")
-        inv_ppo_r,   inv_ppo_en,   inv_ppo_vv   = evaluate_ppo_on_scenarios(
-            args.ppo_model, invalid_scenarios, args.bus_size)
-        inv_mappo_r, inv_mappo_en, inv_mappo_vv = evaluate_mappo_on_scenarios(
-            args.mappo_model, invalid_scenarios, args.bus_size, device_str)
-        inv_results = {
-            'PPO':   {'reward': inv_ppo_r,   'energy_supp': inv_ppo_en,   'volt_viol': inv_ppo_vv},
-            'MAPPO': {'reward': inv_mappo_r, 'energy_supp': inv_mappo_en, 'volt_viol': inv_mappo_vv},
-        }
+        _inv_loaded = False
+        if args.load_results:
+            try:
+                inv_results = load_results(data_dir, tag='invalid_replay')
+                _inv_loaded = True
+                print("\n[Load] Loaded saved invalid replay results.")
+            except Exception:
+                print("\n[Load] No saved invalid replay results — will re-run.")
+
+        if not _inv_loaded:
+            print(f"\n[Invalid Replay] Replaying {len(invalid_scenarios)} PPO-failed scenario(s) ...")
+            inv_ppo_r,   inv_ppo_en,   inv_ppo_vv   = evaluate_ppo_on_scenarios(
+                args.ppo_model, invalid_scenarios, args.bus_size)
+            inv_mappo_r, inv_mappo_en, inv_mappo_vv = evaluate_mappo_on_scenarios(
+                args.mappo_model, invalid_scenarios, args.bus_size, device_str)
+            inv_results = {
+                'PPO':   {'reward': inv_ppo_r,   'energy_supp': inv_ppo_en,   'volt_viol': inv_ppo_vv},
+                'MAPPO': {'reward': inv_mappo_r, 'energy_supp': inv_mappo_en, 'volt_viol': inv_mappo_vv},
+            }
+            save_results(inv_results, data_dir, tag='invalid_replay')
+
         print_comparison(inv_results, args.bus_size, label='PPO-Failed Scenarios Replay')
-        save_results(inv_results, data_dir, tag='invalid_replay')
         if not args.paper_figs:
             plot_comparison(inv_results, args.bus_size,
                             os.path.join(args.plot_dir, 'invalid_replay'), fmt=args.fig_format)
