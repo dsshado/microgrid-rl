@@ -876,8 +876,7 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suff
         ax.set_xticklabels(
             [node_list[i] for i in x[::step]], rotation=45, ha='right', fontsize=7
         )
-        ax.legend(loc='lower right', fontsize=8, ncol=3)
-        ax.set_ylim(0, 1.15)
+        ax.legend(loc='lower right', ncol=3)
         ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
