@@ -32,6 +32,8 @@ import torch
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 matplotlib.rcParams.update({
     'font.family':        'serif',
     'font.serif':         ['DejaVu Serif', 'Times New Roman', 'Computer Modern Roman'],
@@ -581,8 +583,6 @@ def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
 def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
                           save_dir, fmt, suffix='', title=''):
     import networkx as nx
-    from matplotlib.lines import Line2D
-    from matplotlib.patches import Patch
 
     G          = meta['G']
     node_list  = meta['node_list']
