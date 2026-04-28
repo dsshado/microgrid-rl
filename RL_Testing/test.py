@@ -480,7 +480,7 @@ def plot_n_fault_comparison(n_fault_results, save_dir, fmt):
     ax_b.set_xlabel('Number of Simultaneous Faults (N)')
     ax_b.set_ylabel('Failure Rate (%)')
     ax_b.set_xticks(ns)
-    ax_b.set_ylim(-5, 105)
+    ax_b.set_ylim(bottom=0)
     ax_b.legend()
     ax_b.grid(True, alpha=0.3)
     fig_b.tight_layout()
