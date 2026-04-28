@@ -32,6 +32,19 @@ import torch
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+matplotlib.rcParams.update({
+    'font.family':        'serif',
+    'font.serif':         ['DejaVu Serif', 'Times New Roman', 'Computer Modern Roman'],
+    'mathtext.fontset':   'stix',
+    'font.size':          15,
+    'axes.labelsize':     15,
+    'xtick.labelsize':    11,
+    'ytick.labelsize':    11,
+    'legend.fontsize':    15,
+    'lines.linewidth':    1.5,
+    'lines.markersize':   7,
+    'errorbar.capsize':   4,
+})
 
 # ── path setup ────────────────────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
