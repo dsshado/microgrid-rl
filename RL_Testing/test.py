@@ -876,7 +876,7 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suff
         ax.set_ylabel('Voltage (in per unit)')
         ax.set_xticks(x[::step])
         ax.set_xticklabels(
-            [node_list[i] for i in x[::step]], rotation=45, ha='right', fontsize=9
+            [node_list[i] for i in x[::step]], rotation=45, ha='right'
         )
         ax.set_title(algo, fontsize=13, fontweight='bold')
         if ax_idx == 0:
