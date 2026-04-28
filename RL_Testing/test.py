@@ -821,19 +821,10 @@ def plot_decision_heatmap(actions_dict, meta, save_dir, fmt, suffix=''):
         for j in range(len(labels) + 1):
             ax.axvline(j - 0.5, color='white', linewidth=1.5)
 
-    # Mark faulted (masked) switches with X on every row
-    for j in range(n_sw):
-        if mask[j] < 0.5:
-            for i in range(n_algos):
-                axes[0].text(j, i, '✕', ha='center', va='center',
-                             fontsize=14, fontweight='bold', color='red', zorder=5)
-
-    # Legend: closed/open/faulted
+    # Legend: closed/open
     legend_patches = [
         Patch(facecolor='#08306b', edgecolor='white', label='Closed (1)'),
         Patch(facecolor='#f0f0f0', edgecolor='gray',  label='Open (0)'),
-        Line2D([0], [0], marker='$✕$', color='red', markersize=10,
-               linestyle='None', label='Switch on faulted line'),
     ]
     axes[1].legend(handles=legend_patches, loc='upper right', fontsize=11,
                    framealpha=0.9, bbox_to_anchor=(1, 1))
