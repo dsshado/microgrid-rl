@@ -850,23 +850,13 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suff
     step = max(1, len(node_list) // 20)
 
     for ax, (algo, voltages) in zip(axes.flatten(), voltages_dict.items()):
-        dead_marked = False
         for ph_idx, (ph_label, marker, color) in enumerate(phase_styles):
             v      = voltages[:, ph_idx]
             active = v > 0.01
-            dead   = ~active & (v >= 0)   # de-energized buses (voltage = 0)
 
             if active.any():
                 ax.scatter(x[active], v[active], marker=marker, color=color,
                            label=ph_label, s=25, zorder=3)
-            if dead.any() and not dead_marked:
-                ax.scatter(x[dead], np.zeros(dead.sum()), marker='x',
-                           color='black', s=40, zorder=4,
-                           label='de-energized (V=0)')
-                dead_marked = True
-            elif dead.any():
-                ax.scatter(x[dead], np.zeros(dead.sum()), marker='x',
-                           color='black', s=40, zorder=4)
 
         ax.axhline(1.05, linestyle='--', color='gray', linewidth=0.8, alpha=0.7)
         ax.axhline(0.95, linestyle='--', color='gray', linewidth=0.8, alpha=0.7)
