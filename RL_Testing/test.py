@@ -435,54 +435,69 @@ def evaluate_mappo_n_faults(model_path, n_faults, n_episodes, bus_size, device_s
 
 
 def plot_n_fault_comparison(n_fault_results, save_dir, fmt):
-    ns     = sorted(n_fault_results.keys())
-    fig, axes = plt.subplots(1, 3, figsize=(14, 5))
+    ns = sorted(n_fault_results.keys())
+    os.makedirs(save_dir, exist_ok=True)
 
-    configs = [
+    # PPO's invalid mask — used for both algos so means are on the same episode set
+    ppo_masks = [~n_fault_results[n]['PPO'].get('invalid_mask',
+                  np.zeros(len(n_fault_results[n]['PPO']['reward']), dtype=bool))
+                 for n in ns]
+
+    # ── Figure A: mean energy, mean reward, mean voltage violation ────────────
+    perf_configs = [
         ('energy_supp', 'Mean Energy Supplied (p.u.)'),
         ('reward',      'Mean Reward'),
-        ('fail_rate',   'Failure Rate (%)'),
+        ('volt_viol',   'Mean Voltage Violation'),
     ]
-
-    for ax, (metric, ylabel) in zip(axes, configs):
-        # PPO's invalid mask used for both algos so means are on the same episode set
-        ppo_masks = [~n_fault_results[n]['PPO'].get('invalid_mask',
-                      np.zeros(len(n_fault_results[n]['PPO']['reward']), dtype=bool))
-                     for n in ns]
-
+    fig_a, axes_a = plt.subplots(1, 3, figsize=(15, 5))
+    for ax, (metric, ylabel) in zip(axes_a, perf_configs):
         for algo, color, marker in [('PPO', 'steelblue', 'o'), ('MAPPO', 'tomato', 's')]:
-            if metric == 'fail_rate':
-                vals = [float(n_fault_results[n][algo]['fail_rate']) * 100 for n in ns]
-                ax.plot(ns, vals, marker=marker, color=color, linewidth=2,
-                        markersize=8, label=f'{algo}+GCAPS')
-            else:
-                data  = [n_fault_results[n][algo][metric] for n in ns]
-                # use PPO's failure mask for both: compare on the same episodes
-                means = [np.mean(d[m]) if m.any() else 0
-                         for d, m in zip(data, ppo_masks)]
-                stds  = [np.std(d[m])  if m.any() else 0
-                         for d, m in zip(data, ppo_masks)]
-                ax.errorbar(ns, means, yerr=stds, marker=marker, color=color,
-                            linewidth=2, markersize=8, capsize=5,
-                            label=f'{algo}+GCAPS')
-
+            data  = [n_fault_results[n][algo][metric] for n in ns]
+            means = [np.mean(d[m]) if m.any() else 0 for d, m in zip(data, ppo_masks)]
+            stds  = [np.std(d[m])  if m.any() else 0 for d, m in zip(data, ppo_masks)]
+            ax.errorbar(ns, means, yerr=stds, marker=marker, color=color,
+                        linewidth=2, markersize=8, capsize=5, label=f'{algo}+GCAPS')
         ax.set_xlabel('Number of Simultaneous Faults (N)')
         ax.set_ylabel(ylabel)
         ax.set_xticks(ns)
         ax.legend()
         ax.grid(True, alpha=0.3)
-
-    fig.suptitle(
+    fig_a.suptitle(
         'Scalability Test — Performance vs Number of Simultaneous Faults\n'
-        '(500 shared episodes per N, mean ± std on PPO-valid episodes only)',
+        '(500 shared episodes per N, mean ± std on PPO-valid episodes)',
         fontsize=11
     )
-    fig.tight_layout()
-    os.makedirs(save_dir, exist_ok=True)
-    fname = os.path.join(save_dir, f'fig_n_fault_comparison.{fmt}')
-    fig.savefig(fname, dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    print(f"  Saved: {fname}")
+    fig_a.tight_layout()
+    fname_a = os.path.join(save_dir, f'fig_n_fault_performance.{fmt}')
+    fig_a.savefig(fname_a, dpi=300, bbox_inches='tight')
+    plt.close(fig_a)
+    print(f"  Saved: {fname_a}")
+
+    # ── Figure B: failure rate ────────────────────────────────────────────────
+    fig_b, ax_b = plt.subplots(figsize=(6, 5))
+    for algo, color, marker in [('PPO', 'steelblue', 'o'), ('MAPPO', 'tomato', 's')]:
+        vals = [float(n_fault_results[n][algo]['fail_rate']) * 100 for n in ns]
+        ax_b.plot(ns, vals, marker=marker, color=color, linewidth=2,
+                  markersize=8, label=f'{algo}+GCAPS')
+        for x, y in zip(ns, vals):
+            ax_b.annotate(f'{y:.1f}%', (x, y), textcoords='offset points',
+                          xytext=(0, 8), ha='center', fontsize=9, color=color)
+    ax_b.set_xlabel('Number of Simultaneous Faults (N)')
+    ax_b.set_ylabel('Failure Rate (%)')
+    ax_b.set_xticks(ns)
+    ax_b.set_ylim(-5, 105)
+    ax_b.legend()
+    ax_b.grid(True, alpha=0.3)
+    fig_b.suptitle(
+        'Failure Rate vs Number of Simultaneous Faults\n'
+        '(500 shared episodes per N)',
+        fontsize=11
+    )
+    fig_b.tight_layout()
+    fname_b = os.path.join(save_dir, f'fig_n_fault_failure_rate.{fmt}')
+    fig_b.savefig(fname_b, dpi=300, bbox_inches='tight')
+    plt.close(fig_b)
+    print(f"  Saved: {fname_b}")
 
 
 # ── single-episode inspection (for paper figures) ─────────────────────────────
