@@ -683,22 +683,21 @@ def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
         ax.set_title(algo, fontsize=15, fontweight='bold', pad=8)
         ax.axis('off')
 
-        # Only draw legend on first subplot
-        if ax_idx == 0:
-            legend = [
-                Line2D([0], [0], color='#333333', lw=2,   label='Line (closed)'),
-                Line2D([0], [0], color='#2ca02c', lw=3,   label='Switch (closed)'),
-                Line2D([0], [0], color='#ff7f0e', lw=2.5, linestyle='--', label='Switch (open)'),
-                Line2D([0], [0], color='#d62728', lw=3,   linestyle='--', label='Faulted line'),
-                Patch(facecolor='#74c476', edgecolor='black', label='Normal voltage'),
-                Patch(facecolor='#e05c5c', edgecolor='black', label='Voltage violation'),
-                Patch(facecolor='#b0b0b0', edgecolor='black', label='De-energized'),
-                Line2D([0], [0], marker='*', color='w', markerfacecolor='gold',
-                       markeredgecolor='black', markersize=14, label='Grid-forming DER'),
-                Line2D([0], [0], marker='D', color='w', markerfacecolor='dodgerblue',
-                       markeredgecolor='black', markersize=9,  label='Grid-feeding DER'),
-            ]
-            ax.legend(handles=legend, loc='lower left', fontsize=12, framealpha=0.9)
+    legend = [
+        Line2D([0], [0], color='#333333', lw=2,   label='Line (closed)'),
+        Line2D([0], [0], color='#2ca02c', lw=3,   label='Switch (closed)'),
+        Line2D([0], [0], color='#ff7f0e', lw=2.5, linestyle='--', label='Switch (open)'),
+        Line2D([0], [0], color='#d62728', lw=3,   linestyle='--', label='Faulted line'),
+        Patch(facecolor='#74c476', edgecolor='black', label='Normal voltage'),
+        Patch(facecolor='#e05c5c', edgecolor='black', label='Voltage violation'),
+        Patch(facecolor='#b0b0b0', edgecolor='black', label='De-energized'),
+        Line2D([0], [0], marker='*', color='w', markerfacecolor='gold',
+               markeredgecolor='black', markersize=14, label='Grid-forming DER'),
+        Line2D([0], [0], marker='D', color='w', markerfacecolor='dodgerblue',
+               markeredgecolor='black', markersize=9,  label='Grid-feeding DER'),
+    ]
+    fig.legend(handles=legend, loc='lower center', bbox_to_anchor=(0.5, -0.02),
+               ncol=3, fontsize=12, framealpha=0.9)
 
     fig.tight_layout()
     os.makedirs(save_dir, exist_ok=True)
@@ -822,19 +821,19 @@ def plot_decision_heatmap(actions_dict, meta, save_dir, fmt, suffix=''):
         for j in range(len(labels) + 1):
             ax.axvline(j - 0.5, color='white', linewidth=1.5)
 
-    # Red border on outage (masked) switches
+    # Mark faulted (masked) switches with X on every row
     for j in range(n_sw):
         if mask[j] < 0.5:
-            axes[0].add_patch(plt.Rectangle(
-                (j - 0.5, -0.5), 1, n_algos,
-                fill=False, edgecolor='red', linewidth=2.5, zorder=5
-            ))
+            for i in range(n_algos):
+                axes[0].text(j, i, '✕', ha='center', va='center',
+                             fontsize=14, fontweight='bold', color='red', zorder=5)
 
-    # Legend: closed/open/outage
+    # Legend: closed/open/faulted
     legend_patches = [
         Patch(facecolor='#08306b', edgecolor='white', label='Closed (1)'),
         Patch(facecolor='#f0f0f0', edgecolor='gray',  label='Open (0)'),
-        Patch(facecolor='white',   edgecolor='red', linewidth=2, label='Outage switch'),
+        Line2D([0], [0], marker='$✕$', color='red', markersize=10,
+               linestyle='None', label='Switch on faulted line'),
     ]
     axes[1].legend(handles=legend_patches, loc='upper right', fontsize=11,
                    framealpha=0.9, bbox_to_anchor=(1, 1))
@@ -880,7 +879,7 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suff
         )
         ax.set_title(algo, fontsize=13, fontweight='bold')
         if ax_idx == 0:
-            ax.legend(loc='upper left', ncol=3)
+            ax.legend(loc='upper right', ncol=3)
         ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
