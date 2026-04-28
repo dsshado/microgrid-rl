@@ -462,11 +462,6 @@ def plot_n_fault_comparison(n_fault_results, save_dir, fmt):
         ax.set_xticks(ns)
         ax.legend()
         ax.grid(True, alpha=0.3)
-    fig_a.suptitle(
-        'Scalability Test — Performance vs Number of Simultaneous Faults\n'
-        '(500 shared episodes per N, mean ± std on PPO-valid episodes)',
-        fontsize=11
-    )
     fig_a.tight_layout()
     fname_a = os.path.join(save_dir, f'fig_n_fault_performance.{fmt}')
     fig_a.savefig(fname_a, dpi=300, bbox_inches='tight')
@@ -488,11 +483,6 @@ def plot_n_fault_comparison(n_fault_results, save_dir, fmt):
     ax_b.set_ylim(-5, 105)
     ax_b.legend()
     ax_b.grid(True, alpha=0.3)
-    fig_b.suptitle(
-        'Failure Rate vs Number of Simultaneous Faults\n'
-        '(500 shared episodes per N)',
-        fontsize=11
-    )
     fig_b.tight_layout()
     fname_b = os.path.join(save_dir, f'fig_n_fault_failure_rate.{fmt}')
     fig_b.savefig(fname_b, dpi=300, bbox_inches='tight')
@@ -677,7 +667,6 @@ def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
             ax.scatter(xp, yp, marker='D', s=160, color='dodgerblue',
                        edgecolors='black', linewidths=0.8, zorder=6)
 
-        ax.set_title(f'{algo}', fontsize=13, fontweight='bold')
         ax.axis('off')
 
         legend = [
@@ -695,7 +684,6 @@ def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
         ]
         ax.legend(handles=legend, loc='lower left', fontsize=8, framealpha=0.9)
 
-    fig.suptitle(title, fontsize=12, y=1.01)
     fig.tight_layout()
     os.makedirs(save_dir, exist_ok=True)
     tag   = f'_{suffix}' if suffix else ''
@@ -762,7 +750,6 @@ def plot_comparison(results, bus_size, save_dir, fmt='pdf'):
                        label=f"{algo}+GCAPS (mean={vals.mean():.3f})")
         ax.set_xlabel('Episode')
         ax.set_ylabel(ylabel)
-        ax.set_title(f'PPO vs MAPPO — {title} ({bus_size}-bus)')
         ax.legend()
         fig.tight_layout()
         fname = os.path.join(save_dir, f"{key}_comparison.{fmt}")
@@ -778,8 +765,6 @@ def plot_comparison(results, bus_size, save_dir, fmt='pdf'):
             patch.set_facecolor(color)
             patch.set_alpha(0.6)
         ax.set_ylabel(ylabel)
-        ax.set_title(title)
-    fig.suptitle(f'PPO+GCAPS vs MAPPO+GCAPS — IEEE {bus_size}-bus')
     fig.tight_layout()
     fname = os.path.join(save_dir, f'boxplot_summary.{fmt}')
     fig.savefig(fname, dpi=300, bbox_inches='tight')
@@ -816,7 +801,6 @@ def plot_decision_heatmap(actions_dict, meta, save_dir, fmt, suffix=''):
         ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
         ax.set_yticks(range(n_algos))
         ax.set_yticklabels(algos, fontsize=10)
-        ax.set_title(section_title, fontsize=10)
         for i in range(n_algos + 1):
             ax.axhline(i - 0.5, color='white', linewidth=1.5)
         for j in range(len(labels) + 1):
@@ -830,10 +814,6 @@ def plot_decision_heatmap(actions_dict, meta, save_dir, fmt, suffix=''):
                 fill=False, edgecolor='red', linewidth=2.5, zorder=5
             ))
 
-    fig.suptitle(
-        'Decision Variables — Switch and Load Status\n(red border = outage switch, light=0 open, dark=1 closed)',
-        fontsize=11
-    )
     fig.tight_layout()
     os.makedirs(save_dir, exist_ok=True)
     tag   = f'_{suffix}' if suffix else ''
@@ -879,7 +859,6 @@ def plot_voltage_profile(voltages_dict, node_list, save_dir, fmt, title='', suff
         ax.axhline(0.95, linestyle='--', color='gray', linewidth=0.8, alpha=0.7)
         ax.set_xlabel('Buses')
         ax.set_ylabel('Voltage (in per unit)')
-        ax.set_title(f'{algo} — {title}')
         ax.set_xticks(x[::step])
         ax.set_xticklabels(
             [node_list[i] for i in x[::step]], rotation=45, ha='right', fontsize=7
@@ -937,14 +916,8 @@ def plot_valid_mean_bar(results, invalid_scenarios, save_dir, fmt):
                     f'{mean:.3f}', ha='center', va='bottom', fontsize=9)
 
         ax.set_ylabel(ylabel)
-        ax.set_title(title)
         ax.grid(True, axis='y', alpha=0.3)
 
-    fig.suptitle(
-        f'Mean Performance on Valid Episodes '
-        f'({n_valid}/{n} episodes, {n_invalid} PPO-failed excluded)',
-        fontsize=11
-    )
     fig.tight_layout()
     os.makedirs(save_dir, exist_ok=True)
     fname = os.path.join(save_dir, f'fig_valid_mean_bar.{fmt}')
@@ -980,7 +953,6 @@ def plot_energy_bar(results_by_scenario, save_dir, fmt):
 
     ax.set_xlabel('Scenario')
     ax.set_ylabel('Median Energy Supplied (p.u.)')
-    ax.set_title('Energy Served Comparison — PPO+GCAPS vs MAPPO+GCAPS')
     ax.set_xticks(x)
     ax.set_xticklabels(scenarios, rotation=15, ha='right')
     ax.legend()
@@ -1037,7 +1009,6 @@ def plot_training_convergence(ppo_log, mappo_log, save_dir, fmt):
 
     ax.set_xlabel('Steps (× 10⁶)')
     ax.set_ylabel('Reward')
-    ax.set_title('Training Convergence — 34-bus Network')
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
