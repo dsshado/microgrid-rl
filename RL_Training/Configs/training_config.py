@@ -14,7 +14,7 @@ def get_training_config(args=None):
     parser.add_argument('--features_dim', type=int, default=128)
 
     # Training
-    parser.add_argument('--total_steps',   type=int,   default=1000000)
+    parser.add_argument('--total_steps',   type=int,   default=1500000)
     parser.add_argument('--batch_size',    type=int,   default=2000)
     parser.add_argument('--n_steps',       type=int,   default=50000)
     parser.add_argument('--n_epochs',      type=int,   default=100)
