@@ -82,9 +82,13 @@ def CktModSetup(DSSfile, sectional_swt, tie_swt, generators):
         )
 
     for gen in generators:
+        # Grid-forming DERs use Model=3 (constant P, regulated V) so they act as
+        # voltage-source inverters and prevent voltage runaway in islanded sections.
+        # Grid-feeding DERs use Model=1 (constant P, constant PF).
+        mdl = 3 if gen.get('Gridforming', 'No') == 'Yes' else 1
         DSSCktobj.dss.Text.Command(
             f"New Generator.G{str(gen['no'])} bus1={gen['bus']}{gen['phaseconn']} "
-            f"Phases={str(gen['numphase'])} Kv={str(gen['kV'])} Kw={str(gen['size'])} Pf=0.8 Model=1"
+            f"Phases={str(gen['numphase'])} Kv={str(gen['kV'])} Kw={str(gen['size'])} Pf=0.8 Model={mdl}"
         )
 
     # 34-bus network does not use load shapes
