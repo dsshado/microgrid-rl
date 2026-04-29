@@ -579,9 +579,125 @@ def inspect_mappo_scenario(model_path, outages, bus_size, device_str):
     return action_np, post_obs, meta, list(env.outedges)
 
 
+# ── fixed bus coordinates from IEEE34_BusXY.csv ───────────────────────────────
+def _load_bus_pos(bus_size):
+    """Return {bus_name: (x, y)} from IEEE34_BusXY.csv, or None for 123-bus."""
+    if bus_size != 34:
+        return None
+    csv_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        'Environments', 'DSSdirect_34bus_loadandswitching', 'IEEE34_BusXY.csv'
+    )
+    if not os.path.isfile(csv_path):
+        return None
+    pos = {}
+    with open(csv_path) as f:
+        for line in f:
+            parts = line.strip().split(',')
+            if len(parts) >= 3:
+                pos[parts[0].strip().lower()] = (float(parts[1]), float(parts[2]))
+    return pos
+
+
+def _make_pos(G, bus_size):
+    """Fixed positions for 34-bus; kamada_kawai fallback for 123-bus."""
+    import networkx as nx
+    fixed = _load_bus_pos(bus_size)
+    if fixed:
+        pos = {n: fixed[n] for n in G.nodes() if n in fixed}
+        missing = [n for n in G.nodes() if n not in fixed]
+        if missing:
+            sub = nx.spring_layout(G.subgraph(missing), seed=42)
+            pos.update(sub)
+        return pos
+    try:
+        return nx.kamada_kawai_layout(G)
+    except Exception:
+        return nx.spring_layout(G, seed=42)
+
+
+# ── paper-style: clean reference network topology (no faults) ─────────────────
+def plot_clean_topology(meta, save_dir, fmt, bus_size=34):
+    import networkx as nx
+
+    G           = meta['G']
+    AllSwitches = meta['AllSwitches']
+    n_sect      = meta['n_sect']
+    generators  = meta['generators']
+
+    pos = _make_pos(G, bus_size)
+
+    sw_lookup = {}
+    for i, sw in enumerate(AllSwitches):
+        fb, tb = sw['from bus'], sw['to bus']
+        sw_lookup[(fb, tb)] = i
+        sw_lookup[(tb, fb)] = i
+
+    normal_edges    = []
+    closed_sw_edges = []
+    open_sw_edges   = []
+    for u, v in G.edges():
+        key = (str(u), str(v))
+        rev = (str(v), str(u))
+        if key in sw_lookup or rev in sw_lookup:
+            idx = sw_lookup.get(key, sw_lookup.get(rev, -1))
+            if idx < n_sect:
+                closed_sw_edges.append((u, v))
+            else:
+                open_sw_edges.append((u, v))
+        else:
+            normal_edges.append((u, v))
+
+    node_colors = ['#444444' if n == 'sourcebus' else '#d0d0d0' for n in G.nodes()]
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    nx.draw_networkx_edges(G, pos, edgelist=normal_edges,
+                           ax=ax, edge_color='#333333', width=1.5)
+    nx.draw_networkx_edges(G, pos, edgelist=closed_sw_edges,
+                           ax=ax, edge_color='#2ca02c', width=3)
+    nx.draw_networkx_edges(G, pos, edgelist=open_sw_edges,
+                           ax=ax, edge_color='#ff7f0e', width=2.5, style='dashed')
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors,
+                           node_size=300, edgecolors='black', linewidths=0.8)
+    nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold')
+
+    gf_forming = [g['bus'] for g in generators if g['Gridforming'] == 'Yes']
+    gf_feeding = [g['bus'] for g in generators if g['Gridforming'] == 'No']
+    def _xy(buses):
+        return ([pos[b][0] for b in buses if b in pos],
+                [pos[b][1] for b in buses if b in pos])
+    xf, yf = _xy(gf_forming)
+    xp, yp = _xy(gf_feeding)
+    if xf:
+        ax.scatter(xf, yf, marker='*', s=450, color='gold',
+                   edgecolors='black', linewidths=0.8, zorder=6)
+    if xp:
+        ax.scatter(xp, yp, marker='D', s=170, color='dodgerblue',
+                   edgecolors='black', linewidths=0.8, zorder=6)
+    ax.axis('off')
+
+    legend = [
+        Line2D([0], [0], color='#333333', lw=2,   label='Line'),
+        Line2D([0], [0], color='#2ca02c', lw=3,   label='Sectional switch (N.C.)'),
+        Line2D([0], [0], color='#ff7f0e', lw=2.5, linestyle='--', label='Tie switch (N.O.)'),
+        Line2D([0], [0], marker='*', color='w', markerfacecolor='gold',
+               markeredgecolor='black', markersize=14, label='Grid-forming DER'),
+        Line2D([0], [0], marker='D', color='w', markerfacecolor='dodgerblue',
+               markeredgecolor='black', markersize=9,  label='Grid-feeding DER'),
+    ]
+    fig.legend(handles=legend, loc='lower center', bbox_to_anchor=(0.5, -0.01),
+               ncol=5, fontsize=12, framealpha=0.9)
+    fig.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    fname = os.path.join(save_dir, f'fig_clean_topology.{fmt}')
+    fig.savefig(fname, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {fname}")
+
+
 # ── paper-style: network topology graph ──────────────────────────────────────
 def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
-                          save_dir, fmt, suffix='', title=''):
+                          save_dir, fmt, suffix='', title='', bus_size=34):
     import networkx as nx
 
     G          = meta['G']
@@ -602,11 +718,8 @@ def plot_network_topology(actions_dict, post_obs_dict, outedges, meta,
         fault_set.add((str(e[0]), str(e[1])))
         fault_set.add((str(e[1]), str(e[0])))
 
-    # Layout — kamada-kawai gives clean planar layout for radial networks
-    try:
-        pos = nx.kamada_kawai_layout(G)
-    except Exception:
-        pos = nx.spring_layout(G, seed=42)
+    # Fixed geographic positions (34-bus) or automatic layout (123-bus)
+    pos = _make_pos(G, bus_size)
 
     n_algos = len(actions_dict)
     fig, axes = plt.subplots(1, n_algos,
@@ -1174,6 +1287,9 @@ if __name__ == '__main__':
 
             crit_title = 'Critical Outage (lines 832-858, 852-854, 834-860)'
 
+            # Clean reference network topology (no faults)
+            plot_clean_topology(meta, fig_dir, args.fig_format, bus_size=args.bus_size)
+
             # Decision heatmap — critical
             plot_decision_heatmap(
                 {'PPO+GCAPS': ppo_action, 'MAPPO+GCAPS': mappo_action},
@@ -1191,7 +1307,7 @@ if __name__ == '__main__':
                 {'PPO+GCAPS': ppo_action, 'MAPPO+GCAPS': mappo_action},
                 {'PPO+GCAPS': ppo_post_obs, 'MAPPO+GCAPS': mappo_post_obs},
                 crit_outedges, meta, fig_dir, args.fig_format,
-                suffix='critical', title=crit_title
+                suffix='critical', title=crit_title, bus_size=args.bus_size
             )
 
             # Same three figures for first PPO-failed (invalid) scenario
@@ -1219,7 +1335,7 @@ if __name__ == '__main__':
                     {'PPO+GCAPS': ppo_inv_action, 'MAPPO+GCAPS': mappo_inv_action},
                     {'PPO+GCAPS': ppo_inv_obs, 'MAPPO+GCAPS': mappo_inv_obs},
                     inv_outedges, inv_meta, fig_dir, args.fig_format,
-                    suffix='invalid', title=inv_title
+                    suffix='invalid', title=inv_title, bus_size=args.bus_size
                 )
 
             # Valid-episode mean bar chart
