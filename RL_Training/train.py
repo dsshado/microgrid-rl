@@ -7,10 +7,12 @@ Usage:
     python train.py --algo PPO   --bus_size 123
 """
 
+import csv
 import sys
 import os
 import math
 import torch
+import numpy as np
 from typing import Callable
 
 # ── path setup ────────────────────────────────────────────────────────────────
@@ -95,9 +97,44 @@ if __name__ == '__main__':
     # ══════════════════════════════════════════════════════════════════════════
     if cfg.algo == 'PPO':
         from stable_baselines3 import PPO
-        from stable_baselines3.common.callbacks import CheckpointCallback
+        from stable_baselines3.common.callbacks import BaseCallback, CallbackList, CheckpointCallback
         from stable_baselines3.common.vec_env import SubprocVecEnv
         from stable_baselines3.common.utils import set_random_seed
+
+        class ConvergenceCallback(BaseCallback):
+            """Saves per-update metrics to CSV and NPZ alongside the model."""
+            _fields = ["steps", "ep_rew_mean", "policy_loss", "value_loss", "entropy"]
+
+            def __init__(self, save_path):
+                super().__init__()
+                self._save_path = save_path
+                self._rows = []
+                self._csv_file = open(save_path + "_convergence.csv", "w", newline="")
+                self._writer = csv.DictWriter(self._csv_file, fieldnames=self._fields)
+                self._writer.writeheader()
+
+            def _on_rollout_end(self):
+                log = self.model.logger.name_to_value
+                row = {
+                    "steps":       self.num_timesteps,
+                    "ep_rew_mean": log.get("rollout/ep_rew_mean", float("nan")),
+                    "policy_loss": log.get("train/policy_gradient_loss", float("nan")),
+                    "value_loss":  log.get("train/value_loss", float("nan")),
+                    "entropy":     log.get("train/entropy_loss", float("nan")),
+                }
+                self._writer.writerow(row)
+                self._csv_file.flush()
+                self._rows.append(row)
+                return True
+
+            def _on_step(self):
+                return True
+
+            def _on_training_end(self):
+                self._csv_file.close()
+                arr = {k: np.array([r[k] for r in self._rows]) for k in self._fields}
+                np.savez(self._save_path + "_convergence.npz", **arr)
+                print(f"Convergence data : {self._save_path}_convergence.csv")
 
         if cfg.bus_size == 34:
             from Policies.bus_123.Feature_Extractor import get_extractor
@@ -130,11 +167,12 @@ if __name__ == '__main__':
             features_extractor_kwargs=dict(features_dim=cfg.features_dim, node_dim=3, gnn_type='GCAPS'),
             net_arch=net_arch,
         )
-        checkpoint_cb = CheckpointCallback(
+        checkpoint_cb    = CheckpointCallback(
             save_freq=cfg.save_freq,
             save_path=cfg.model_save,
             name_prefix=f"PPO_GCAPS_{cfg.bus_size}bus"
         )
+        convergence_cb = ConvergenceCallback(save_path)
         model = PPO(
             policy=ActorCriticGCAPSPolicy,
             env=vec_env,
@@ -149,7 +187,8 @@ if __name__ == '__main__':
             ent_coef=cfg.ent_coef,
             device=device_str,
         )
-        model.learn(total_timesteps=cfg.total_steps, callback=checkpoint_cb)
+        model.learn(total_timesteps=cfg.total_steps,
+                    callback=CallbackList([checkpoint_cb, convergence_cb]))
         model.save(save_path + "_final")
         print(f"PPO model saved to {save_path}_final")
 
