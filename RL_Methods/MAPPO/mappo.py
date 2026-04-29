@@ -1,5 +1,6 @@
 """MAPPO trainer — Wang et al. (2025) Eqs. 23-33, v2 spec."""
 
+import csv
 import math
 import os
 import numpy as np
@@ -52,6 +53,7 @@ class MAPPO:
 
         self.tb_writer = SummaryWriter(log_dir=cfg.logger + f"MAPPO_GCAPS_{cfg.bus_size}bus")
         self._global_step = 0
+        self._conv_rows: list = []   # accumulates per-update metrics for CSV/NPZ
 
     # ── default initial actions after reset ─────────────────────────────────
 
@@ -166,13 +168,18 @@ class MAPPO:
                 n_batches        += 1
 
         n_batches = max(n_batches, 1)
-        self.tb_writer.add_scalar("train/actor_loss",  total_actor_loss / n_batches, self._global_step)
-        self.tb_writer.add_scalar("train/value_loss",  total_value_loss / n_batches, self._global_step)
-        self.tb_writer.add_scalar("train/entropy",     total_entropy    / n_batches, self._global_step)
         mean_reward = float(self.buffer.rewards.mean())
-        self.tb_writer.add_scalar("train/mean_reward", mean_reward,                  self._global_step)
-
-        return total_actor_loss / n_batches
+        metrics = {
+            "actor_loss":  total_actor_loss / n_batches,
+            "value_loss":  total_value_loss / n_batches,
+            "entropy":     total_entropy    / n_batches,
+            "mean_reward": mean_reward,
+        }
+        self.tb_writer.add_scalar("train/actor_loss",  metrics["actor_loss"],  self._global_step)
+        self.tb_writer.add_scalar("train/value_loss",  metrics["value_loss"],  self._global_step)
+        self.tb_writer.add_scalar("train/entropy",     metrics["entropy"],     self._global_step)
+        self.tb_writer.add_scalar("train/mean_reward", metrics["mean_reward"], self._global_step)
+        return metrics
 
     # ── main training loop ───────────────────────────────────────────────────
 
@@ -184,16 +191,28 @@ class MAPPO:
         print(f"MAPPO training: {total_timesteps} steps / {n_updates} updates")
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
+        csv_path = save_path + "_convergence.csv"
+        _csv_fields = ["steps", "update", "actor_loss", "value_loss", "entropy", "mean_reward"]
+        csv_file = open(csv_path, "w", newline="")
+        csv_writer = csv.DictWriter(csv_file, fieldnames=_csv_fields)
+        csv_writer.writeheader()
+
         for update in range(1, n_updates + 1):
             progress = 1.0 - steps_done / total_timesteps
             for g in self.optimizer.param_groups:
                 g['lr'] = lr_schedule(self.cfg.learning_rate)(progress)
 
             self.collect_rollouts()
-            actor_loss = self.update()
+            metrics    = self.update()
             steps_done += self.cfg.n_steps
 
-            print(f"Update {update}/{n_updates} | steps {steps_done} | actor_loss {actor_loss:.4f}")
+            row = {"steps": steps_done, "update": update, **metrics}
+            csv_writer.writerow(row)
+            csv_file.flush()
+            self._conv_rows.append(row)
+
+            print(f"Update {update}/{n_updates} | steps {steps_done} | "
+                  f"actor_loss {metrics['actor_loss']:.4f} | reward {metrics['mean_reward']:.4f}")
 
             if steps_done >= next_save:
                 ckpt = save_path + f"_step{steps_done}"
@@ -201,6 +220,13 @@ class MAPPO:
                 print(f"  Checkpoint saved: {ckpt}.pt")
                 next_save += save_freq
 
+        csv_file.close()
+
+        # save NPZ for easy numpy loading
+        arr = {k: np.array([r[k] for r in self._conv_rows]) for k in _csv_fields}
+        np.savez(save_path + "_convergence.npz", **arr)
+
         torch.save(self.policy.state_dict(), save_path + "_final.pt")
         print(f"Training complete. Model saved to {save_path}_final.pt")
+        print(f"Convergence data : {csv_path}")
         self.tb_writer.close()
