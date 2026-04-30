@@ -82,10 +82,9 @@ def CktModSetup(DSSfile, sectional_swt, tie_swt, generators):
         )
 
     for gen in generators:
-        mdl = 3 if gen.get('Gridforming', 'No') == 'Yes' else 1
         DSSCktobj.dss.Text.Command(
             f"New Generator.G{str(gen['no'])} bus1={gen['bus']}{gen['phaseconn']} "
-            f"Phases={str(gen['numphase'])} Kv={str(gen['kV'])} Kw={str(gen['size'])} Pf=0.8 Model={mdl}"
+            f"Phases={str(gen['numphase'])} Kv={str(gen['kV'])} Kw={str(gen['size'])} Pf=0.8 Model=1"
         )
 
     DSSCktobj.dss.Text.Command("redirect Loadshapes.dss")
